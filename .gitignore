@@ -1,0 +1,19 @@
+# 项目记忆（本地保留，不进仓库）
+.dsh/
+
+# 数据与运行产物
+data/
+*.db
+*.db-journal
+logs/
+__pycache__/
+*.pyc
+
+# 依赖
+node_modules/
+venv/
+.venv/
+
+# 系统文件
+Thumbs.db
+Desktop.ini
