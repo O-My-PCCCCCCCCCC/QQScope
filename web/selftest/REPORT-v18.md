@@ -49,3 +49,42 @@
 1. **Phase 2 未完成**：`media_cache/avatars/export/voice/pack/decrypt` 的写入路径仍走全局目录（`paths.account_*` helper 已提供，但 export/pack/decrypt/voice 的写盘点尚未切到账号子目录）。本轮优先保证「库级物理隔离 + 迁移 + 全量回归」，文件子目录切换下一轮做。
 2. `data/avatars`、媒体解析源（Tencent Files）按 task-9 结论属公开/外部信息，是否按账号再分目录需产品确认。
 3. 迁移是**一次性、幂等**的；若中途失败，旧库保持原样（备份在 data/backup/），不会丢数据。
+---
+
+## 六、Phase 2：文件级按账号落盘（2026-10-01 追加）
+
+### 已切换的写盘路径
+| 目录 | 新路径 | 切换点 |
+|---|---|---|
+| export | `data/accounts/<qq>/export/{<job>,_meta/<job>.json,<job>.zip}` | `core/export.py`（export/job_meta/zip）；`server/app.py` 的 `/api/export/list`、`/api/export/download` 按 account 目录 |
+| media_cache | `data/accounts/<qq>/media_cache/` | `core/media_fetch.save_cache(account_qq, ...)`（唯一调用点已传 account） |
+| avatars | `data/accounts/<owner>/avatars/<qq>.png`（无法判定归属则回退全局 `data/avatars`） | `server/routes_profile.py` 的 `/api/avatar`、`/api/avatar/group`；owner 由新增 `store.account_for_uin(uin)`（账号自身或唯一联系人）判定 |
+| decrypt | `data/accounts/<qq>/decrypt/` | `core/sources/pack_source.py::_decrypt_dir`、`core/sources/names.py`（2 处 work 目录） |
+| pack | `data/accounts/<qq>/pack/`（helper 已就绪） | 本轮未切：`server/onebot.py`、`server/reader.py` 不在本任务允许改动范围；`data/pack` 现仅剩 2 个 root 级文件 |
+| voice | `data/accounts/<qq>/voice/` | 真实 `data/voice` 不存在，当前无写盘点 |
+
+### 一次性迁移脚本
+`scripts/migrate_files_split.py`：
+- `--selftest`（默认安全）：合成小夹具自测 -> **7/7 PASS**（media 唯一 md5 归位、无主 media 留原处、avatar 归属、无主 avatar 留原处、export 按 _meta 归位、decrypt/<qq> 归位、迁移前备份）。
+- `--dry`：只读枚举，不移动、不备份。
+- `--yes`：真实执行；执行前把 export/media_cache/avatars/decrypt/pack/voice 整体备份到 `data/backup/files_split_<ts>/`。
+- 归属规则：export 按 `_meta/<job>.json.account_qq`；media_cache 按各账号库 `messages.media.md5` 唯一命中；avatars 按 `store.account_for_uin`；decrypt/pack 按目录名 = 账号 QQ。
+- **无法判定的文件不删、不移**，原处保留并计入 `left` 清单。
+
+### 真实库 --dry 结果（未移动任何文件）
+- 可判定归属（将移动）：export 30、media_cache 1551、avatars 127、decrypt 3、pack 2、voice 0。
+- 无法判定（留在原处）：export 52（无 `_meta` 的旧 job）、media_cache 28（无 md5 命中/多账号同名）、avatars 212（联系人未唯一映射到某个账号）、decrypt 14（非账号目录，如 profile/test_*/xiaohao）、pack 2（root 级 `messages.json.gz`/`meta.json`）、voice 0。
+
+### 迁移是否已在真实库执行
+**未执行**。15555 当前仍运行 Phase 1 代码、读全局目录；此时移动文件会让在线服务读不到（头像/导出/媒体缓存会短时失效）。请 Lead 重启 15555 到 Phase 2 代码后执行：
+`python scripts/migrate_files_split.py --yes`（备份 `E:\01-项目\QQScope\data\backup\files_split_<ts>\`）。
+
+### Phase 2 回归
+| 项目 | 结果 |
+|---|---|
+| `scripts/migrate_files_split.py --selftest` | 7/7 PASS |
+| `scripts/verify.py --full` | **13/13**（导出实测产物已落在 `data/accounts/1438830763/export/exp_...`） |
+| `scripts/isolation_test.py` | **113/113** |
+| `check_v2..v17` | **356/0**（v15 一条 export _meta 断言随账号目录更新） |
+
+红线：真实 data/qqscope.db 未改；未重启 15555；未碰 NapCat；文件迁移在真实库仅做 `--dry` 枚举。

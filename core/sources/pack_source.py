@@ -143,7 +143,7 @@ def _key_sources(qq: int, opts: dict) -> list[tuple[str, str]]:
 
 
 def _work_dir(qq: int) -> Path:
-    return paths.DECRYPT_DIR / str(qq)
+    return paths.account_decrypt(qq)
 
 
 def _copy_snapshot(acc: dict, work: Path) -> None:

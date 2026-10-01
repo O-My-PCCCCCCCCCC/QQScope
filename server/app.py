@@ -429,15 +429,16 @@ def export_list(account: int | None = None):
     account = int(account)
     mod, _why = load_exporter()
     jobs = []
-    if paths.EXPORT_DIR.exists():
-        for d in sorted(paths.EXPORT_DIR.iterdir(), reverse=True):
+    root = paths.account_export(account, create=False)
+    if root.exists():
+        for d in sorted(root.iterdir(), reverse=True):
             if not d.is_dir() or d.name.startswith("_"):
                 continue
             meta = mod.job_meta(d.name) if mod is not None else None
             if not meta or int(meta.get("account_qq") or 0) != account:
                 continue   # 无元数据（旧任务）或属于其它账号：一律不展示
             files = [{"name": f.name, "size": f.stat().st_size} for f in sorted(d.iterdir()) if f.is_file()]
-            z = paths.EXPORT_DIR / f"{d.name}.zip"
+            z = root / f"{d.name}.zip"
             jobs.append({"job": d.name, "created": int(d.stat().st_mtime),
                          "files": files, "count": len(files),
                          "zip": z.name if z.exists() else None})
@@ -451,15 +452,16 @@ def export_download(job: str, name: str | None = None, account: int | None = Non
     if "/" in job or "\\" in job or ".." in job:
         return fail("非法 job")
     _mod, _why = load_exporter()
-    _meta = _mod.job_meta(job) if _mod is not None else None
+    _meta = _mod.job_meta(job, account) if _mod is not None else None
     if not _meta or int(_meta.get("account_qq") or 0) != int(account):
         return fail("任务不存在或不属于该账号", 404)
+    root = paths.account_export(account, create=False)
     if name:
         if "/" in name or "\\" in name or ".." in name:
             return fail("非法文件名")
-        f = paths.EXPORT_DIR / job / name
+        f = root / job / name
     else:
-        f = paths.EXPORT_DIR / f"{job}.zip"
+        f = root / f"{job}.zip"
     if not f.exists() or not f.is_file():
         return fail("文件不存在", 404)
     return FileResponse(str(f), filename=f.name)

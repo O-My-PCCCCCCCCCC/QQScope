@@ -361,6 +361,36 @@ def list_accounts() -> list[dict]:
     return out
 
 
+def account_for_uin(uin) -> int | None:
+    """把 QQ/群号映射到本机账号：优先账号自身，其次唯一联系人归属；否则 None（调用方回退全局目录）。"""
+    try:
+        u = int(uin or 0)
+    except (TypeError, ValueError):
+        return None
+    if not u:
+        return None
+    try:
+        dbs = sorted(p for p in paths.ACCOUNTS_DIR.glob("*/qqscope.db") if p.parent.name.isdigit())
+    except OSError:
+        dbs = []
+    qqs = [int(p.parent.name) for p in dbs]
+    if u in qqs:
+        return u
+    hits = []
+    for qq in qqs:
+        try:
+            con = connect(qq)
+            try:
+                if con.execute("SELECT 1 FROM contacts WHERE account_qq=? AND peer_qq=? LIMIT 1",
+                               (qq, u)).fetchone():
+                    hits.append(qq)
+            finally:
+                con.close()
+        except Exception:  # noqa: BLE001
+            pass
+    return hits[0] if len(hits) == 1 else None
+
+
 def delete_account(account_qq: int) -> None:
     """删该账号目录（含库与文件），并从注册表移除。"""
     qq = int(account_qq)

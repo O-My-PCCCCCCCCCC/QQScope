@@ -289,7 +289,7 @@ def _fetch_local(account_qq: int, data_root=None, key: str | None = None,
     if not keys:
         return _empty("没有可用密钥（data/keys/<qq>.key 或 qq-export/db_key.txt）", t0)
 
-    work = Path(paths.DECRYPT_DIR) / str(qq)
+    work = paths.account_decrypt(qq)
     present = [n for n in NAME_DBS if (raw_dir / n).exists()]
     if not present:
         return _empty(f"在 {raw_dir} 找不到 profile_info.db / group_info.db", t0)
@@ -606,7 +606,7 @@ def _read_self_with_keys(account_qq: int, data_root=None,
     keys = _candidate_keys(qq, key)
     if not keys:
         return None, "没有可用密钥"
-    work = Path(paths.DECRYPT_DIR) / str(qq)
+    work = paths.account_decrypt(qq)
     last: Exception | None = None
     for k in keys:
         con = None

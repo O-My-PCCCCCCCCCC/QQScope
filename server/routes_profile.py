@@ -182,21 +182,32 @@ def _serve_avatar(cache_path: Path, url: str) -> Response:
 
 @router.get("/api/avatar")
 def avatar(qq: int = 0):
-    '''QQ 头像图片流。缓存 data/avatars/<qq>.png，源 q1.qlogo.cn。'''
+    '''QQ 头像图片流。缓存 data/accounts/<owner>/avatars/<qq>.png（无法判定归属则全局 data/avatars）。'''
     if qq <= 0:
         return JSONResponse(status_code=404,
                             content={"ok": False, "detail": "缺少合法的 qq"})
-    return _serve_avatar(AVATAR_DIR / f"{qq}.png", USER_AVATAR_URL.format(qq=qq))
+    try:
+        from core import store as _store
+        owner = _store.account_for_uin(qq)
+    except Exception:  # noqa: BLE001
+        owner = None
+    d = paths.account_avatars(owner) if owner else AVATAR_DIR
+    return _serve_avatar(d / f"{qq}.png", USER_AVATAR_URL.format(qq=qq))
 
 
 @router.get("/api/avatar/group")
 def avatar_group(group: int = 0):
-    '''群头像图片流。缓存 data/avatars/group_<gid>.png，源 p.qlogo.cn。'''
+    '''群头像图片流。缓存 data/accounts/<owner>/avatars/group_<gid>.png（无法判定则全局）。'''
     if group <= 0:
         return JSONResponse(status_code=404,
                             content={"ok": False, "detail": "缺少合法的 group"})
-    return _serve_avatar(AVATAR_DIR / f"group_{group}.png",
-                         GROUP_AVATAR_URL.format(gid=group))
+    try:
+        from core import store as _store
+        owner = _store.account_for_uin(group)
+    except Exception:  # noqa: BLE001
+        owner = None
+    d = paths.account_avatars(owner) if owner else AVATAR_DIR
+    return _serve_avatar(d / f"group_{group}.png", GROUP_AVATAR_URL.format(gid=group))
 
 # ── 昵称 / 资料包缓存（解密较贵，进程内缓存 5 分钟） ────────────────────────
 _BUNDLE_TTL = 300.0

@@ -87,21 +87,28 @@ def c_store():
 
 
 def c_account_layout():
-    """task-11 物理分账号：迁移后 data/accounts/<qq>/ 有独立库。
+    """task-11 物理分账号：**每个注册账号**都要有自己的 data/accounts/<qq>/qqscope.db。
 
-    未迁移（还在用旧单库）时给 PASS + 说明，因为迁移在 15555 重启时自动执行。
+    注意：data/accounts/ 下可能还有「非账号」目录（例如迁移时由
+    data/decrypt/3060648699/ 这类目录名派生的），它们没有库是正常的，
+    所以判据必须走 accounts 注册表，而不是遍历目录。
     """
     from core import paths
     if not paths.accounts_split_done():
         if paths.legacy_present():
             return True, "尚未迁移（重启 15555 时自动拆分，先备份后改名）"
         return True, "无账号数据（全新环境）"
-    dirs = [d for d in sorted(paths.ACCOUNTS_DIR.iterdir()) if d.is_dir()]
-    missing = [d.name for d in dirs if not (d / "qqscope.db").exists()]
+    from core import store
+    accs = [int(a["account_qq"]) for a in store.list_accounts()]
+    missing = [qq for qq in accs if not (paths.account_db(qq)).exists()]
+    extra = [d.name for d in sorted(paths.ACCOUNTS_DIR.iterdir())
+             if d.is_dir() and d.name.isdigit() and int(d.name) not in accs]
     if missing:
-        return False, f"{len(dirs)} 个账号目录，缺库：{missing[:3]}"
-    return True, f"{len(dirs)} 个账号目录，各自独立 qqscope.db"
-
+        return False, f"{len(accs)} 个注册账号，缺库：{missing[:3]}"
+    note = f"{len(accs)} 个注册账号各有独立库"
+    if extra:
+        note += f"；另有 {len(extra)} 个非账号目录（仅迁移残留，不算错）"
+    return True, note
 
 def c_no_orphan_accounts():
     """task-11：每个账号库内 account_qq 必须一致；注册表与目录一一对应。

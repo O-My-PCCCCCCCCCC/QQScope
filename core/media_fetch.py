@@ -40,7 +40,7 @@ import httpx
 
 from core import paths, store
 
-MEDIA_CACHE_DIR = paths.DATA / "media_cache"
+MEDIA_CACHE_DIR = paths.DATA / "media_cache"   # 旧全局目录（迁移源，保留兼容）
 FRAMEWORK_CONFIG = paths.DATA / "framework" / "onebot.json"
 
 DEFAULT_BASE = "http://127.0.0.1:3000"
@@ -234,10 +234,11 @@ def _ext_for(kind: str, name, data: bytes) -> str:
     return ".bin"
 
 
-def save_cache(data: bytes, key: str, ext: str) -> Path:
-    MEDIA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+def save_cache(account_qq, data: bytes, key: str, ext: str) -> Path:
+    d = paths.account_media_cache(account_qq) if account_qq else MEDIA_CACHE_DIR
+    d.mkdir(parents=True, exist_ok=True)
     safe = re.sub(r"[^0-9a-zA-Z_.-]", "_", str(key or "media"))[:80] or "media"
-    p = MEDIA_CACHE_DIR / (safe + ext)
+    p = d / (safe + ext)
     tmp = p.with_name(p.name + ".tmp")
     tmp.write_bytes(data)
     tmp.replace(p)
@@ -417,7 +418,7 @@ def _fetch_one(account_qq, it: dict, rkeys: dict, base=None, token=None) -> dict
 
     ext = _ext_for(kind, rec["name"], data)
     try:
-        p = save_cache(data, rec["md5"] or ("id_" + str(rec["id"])), ext)
+        p = save_cache(account_qq, data, rec["md5"] or ("id_" + str(rec["id"])), ext)
         backfill(account_qq, rec["id"], p)
     except Exception as exc:  # noqa: BLE001
         rec["reason"] = "network" if isinstance(exc, OSError) else "bad_data"

@@ -100,7 +100,7 @@ ok("routes_send 校验 account == 登录号", /account_qq != login/.test(sendSrc
 ok("routes_send history 必须 account", /def api_send_history\([\s\S]{0,260}?if not account:/.test(sendSrc));
 ok("core.send 严格校验 account == uin", /if _to_int\(account_qq\) != uin:/.test(read("core/send.py")));
 const exportSrc = read("core/export.py");
-ok("core.export 写任务元数据 _meta", /EXPORT_DIR \/ "_meta"/.test(exportSrc) && /def job_meta\(/.test(exportSrc));
+ok("core.export 写任务元数据 _meta（按账号目录）", /_meta"/.test(exportSrc) && /def job_meta\(/.test(exportSrc) && /account_export/.test(exportSrc));
 ok("core.media index_stats 支持 account", /def index_stats\(account_qq=None\)/.test(read("core/media.py")));
 ok("routes_voice progress 带 account", /def voice_progress\(account/.test(read("server/routes_voice.py")));
 

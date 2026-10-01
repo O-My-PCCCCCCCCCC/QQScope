@@ -1061,17 +1061,33 @@ def _new_job_id() -> str:
     return "exp_" + time.strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
 
 
-def job_meta(job: str) -> dict | None:
-    """读取导出任务元数据（含 account_qq）。旧任务没有元数据 -> 返回 None。
+def job_meta(job: str, account_qq=None) -> dict | None:
+    """读取导出任务元数据（含 account_qq）。
 
-    多账号隔离：接口层靠这份元数据判断某个导出任务/zip 属于哪个账号。"""
-    try:
-        p = paths.EXPORT_DIR / "_meta" / f"{str(job)}.json"
-        if p.is_file():
-            data = json.loads(p.read_text(encoding="utf-8"))
-            return data if isinstance(data, dict) else None
-    except Exception:  # noqa: BLE001
-        return None
+    task-11：导出目录已按账号拆分 data/accounts/<qq>/export/_meta/<job>.json；
+    account_qq 给定 -> 只查该账号；不传 -> 遍历各账号目录（迁移前兼容全局 data/export）。"""
+    roots = []
+    if account_qq:
+        try:
+            roots.append(paths.account_export(account_qq, create=False))
+        except Exception:  # noqa: BLE001
+            pass
+    else:
+        try:
+            roots = [d / "export" for d in paths.ACCOUNTS_DIR.iterdir() if (d / "export").is_dir()]
+        except OSError:
+            roots = []
+        if paths.EXPORT_DIR.is_dir():
+            roots.append(paths.EXPORT_DIR)   # 迁移前/未归属的旧任务
+    for root in roots:
+        try:
+            p = root / "_meta" / f"{str(job)}.json"
+            if p.is_file():
+                data = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return data
+        except Exception:  # noqa: BLE001
+            continue
     return None
 
 # -- 对外契约 ---------------------------------------------------------------
@@ -1155,16 +1171,17 @@ def export(account_qq, targets, formats, mode: str = "per_peer", opts: dict | No
 
     store.init()
 
+    root = paths.account_export(account_qq)          # task-11：导出产物按账号落目录
     job = str(opts.get("job") or _new_job_id())
-    jobdir = paths.EXPORT_DIR / job
+    jobdir = root / job
     n = 1
     while jobdir.exists():
         job = f"{job}_{n}"
-        jobdir = paths.EXPORT_DIR / job
+        jobdir = root / job
         n += 1
     jobdir.mkdir(parents=True, exist_ok=True)
     try:  # 多账号隔离：记录任务归属，供 /api/export/list 与 /download 校验
-        meta_dir = paths.EXPORT_DIR / "_meta"
+        meta_dir = root / "_meta"
         meta_dir.mkdir(parents=True, exist_ok=True)
         (meta_dir / f"{job}.json").write_text(
             json.dumps({"job": job, "account_qq": account_qq,
@@ -1242,7 +1259,7 @@ def export(account_qq, targets, formats, mode: str = "per_peer", opts: dict | No
                 "target": f'{sess["file_kind"]}:{sess["file_peer"]}',
             })
 
-    zip_path = paths.EXPORT_DIR / f"{job}.zip"
+    zip_path = root / f"{job}.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for f in files:
             zf.write(jobdir / f["name"], arcname=f["name"])
