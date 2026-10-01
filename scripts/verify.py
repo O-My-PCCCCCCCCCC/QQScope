@@ -115,6 +115,32 @@ def c_routes_v5_v10():
     return (not missing), f"已注册 {len(found)} 条；v5-v10 期望 {len(EXPECTED_ROUTES_V5_V10)} 条" +         (f"；缺失 {missing}" if missing else "，无缺失")
 
 
+def c_no_orphan_accounts():
+    """消息/联系人/动态的 account_qq 必须都能在 accounts 里找到。
+
+    防回归：实时采集把「框架登录但尚未导入」的账号写进 messages 后，
+    如果没同时登记 accounts 行，那些消息就是孤儿 —— 数据在库里，
+    但 /api/accounts 列不出该账号，界面永远看不到（等于自动填充白干）。
+    """
+    from core import store
+    con = store.connect()
+    try:
+        bad = {}
+        for tbl in ("messages", "contacts", "feeds"):
+            try:
+                n = con.execute(
+                    f"SELECT COUNT(*) FROM {tbl} t WHERE NOT EXISTS "
+                    "(SELECT 1 FROM accounts a WHERE a.account_qq = t.account_qq)"
+                ).fetchone()[0]
+            except Exception:  # noqa: BLE001
+                n = 0
+            if n:
+                bad[tbl] = n
+    finally:
+        con.close()
+    return (not bad), ("孤儿行：%s" % bad) if bad else "无孤儿账号行"
+
+
 def c_export_mod():
     mod = importlib.import_module("core.export")
     return hasattr(mod, "export"), "export() 存在" if hasattr(mod, "export") else "缺 export()"
@@ -219,6 +245,7 @@ def main() -> None:
     check("数据源 pack 模块", c_source("pack"))
     check("数据源 bot 模块", c_source("bot"))
     check("v5-v10 接口已注册", c_routes_v5_v10)
+    check("无孤儿账号行", c_no_orphan_accounts)
     check("core.export 模块", c_export_mod)
     check("web 源码自检", c_web_src)
     check("构建单文件前端", c_build)

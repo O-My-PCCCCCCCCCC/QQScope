@@ -106,7 +106,7 @@ def main() -> int:
     # 不碰 NapCat / 不扫本机框架：把探测函数换成静态值
     from core import framework_log
     fake_gate = {"framework_running": True, "logged_in": True, "account": A,
-                 "nickname": "A·DOM", "sync_allowed": True, "can_stop": True,
+                 "nickname": "DOMLOGIN", "sync_allowed": True, "can_stop": True,
                  "pid": 0, "qr": {}}
     framework_log.login_gate = lambda *a, **k: dict(fake_gate)
     framework_log.framework_status = lambda *a, **k: {"running": True, "pid": 0,

@@ -142,6 +142,22 @@ class LiveSync:
         self._waiting_login = False
         self._waiting_since = 0.0
 
+    def _ensure_account_row(self) -> None:
+        """把「框架已登录但尚未导入」的账号登记进 accounts。
+
+        否则实时采集到的消息是孤儿：消息按 self.uin 入库了，但 /api/accounts
+        列不出这个号 → 界面选择器里没有它 → 用户永远看不到自动采到的内容。
+        只对不存在的账号建行，绝不改已有账号的 label/source。
+        """
+        if not self.uin:
+            return
+        try:
+            known = {int(a["account_qq"]) for a in store.list_accounts()}
+            if int(self.uin) not in known:
+                store.upsert_account(int(self.uin), label=self.nick or None, source="live")
+        except Exception:  # noqa: BLE001
+            pass
+
     # ── 生命周期 ────────────────────────────────────────────────────────────
     def start(self) -> dict:
         with self._lock:
@@ -248,6 +264,7 @@ class LiveSync:
             self.uin, self.nick = int(uin), str(nick)
             self._login_at = now
             self._last_poll_ts = int(time.time())
+            self._ensure_account_row()
             self._gap()
 
         # 偶尔重新拉好友/群列表，发现新会话

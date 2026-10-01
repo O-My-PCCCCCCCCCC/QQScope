@@ -628,6 +628,91 @@ def main() -> int:
     finally:
         qzone.resolve_credential = orig_rc
 
+    print("\n===== 5.6) 身份绑定：框架登录号 vs 查看账号（task-10）=====")
+    import core.framework_log as flog
+    orig_gate = flog.login_gate
+    # 用一个合成号表示「框架登录了但库里没有这个账号」。
+    # 不能再用真实号（如 1438830763）：live 采集会自动把登录号登记进 accounts，
+    # 那样夹具里它就不再是「不在库」了（2026-10-01 踩过）。
+    X_NOT_IMPORTED = 999000123
+
+    def _fake_gate(acct, logged=True, nick="iso"):
+        return {"framework_running": False, "logged_in": bool(logged),
+                "account": (acct if logged else None), "nickname": (nick if logged else ""),
+                "sync_allowed": bool(logged), "can_stop": True, "pid": 0, "qr": {}}
+
+    try:
+        # 情形1：登录号 A（在库），查看 B
+        flog.login_gate = lambda *a, **k: _fake_gate(A, True, "isoA")
+        st, d, _t = get_json(f"/api/login/status?account={B}")
+        check("登录=A(在库)/查看=B -> sync_allowed=false + account_mismatch",
+              st == 200 and d.get("sync_allowed") is False
+              and d.get("sync_block_reason") == "account_mismatch"
+              and d.get("account_in_store") is True and d.get("view_account_mismatch") is True
+              and int(d.get("account") or 0) == A,
+              f"status={st} sync_allowed={d.get('sync_allowed')} reason={d.get('sync_block_reason')}")
+        st, d, _t = get_json(f"/api/login/status?account={A}")
+        check("登录=A/查看=A -> sync_allowed=true（正对照）",
+              st == 200 and d.get("sync_allowed") is True and d.get("view_account_mismatch") is False
+              and d.get("account_in_store") is True, f"{d.get('sync_allowed')}/{d.get('account_in_store')}")
+        st, d, _t = get_json("/api/login/status")
+        check("登录=A/不传 account -> 旧语义(sync_allowed=true)",
+              st == 200 and d.get("sync_allowed") is True and d.get("view_account") is None, f"{d.get('sync_allowed')}")
+
+        # 情形2：登录号 X 不在库，查看 A
+        flog.login_gate = lambda *a, **k: _fake_gate(X_NOT_IMPORTED, True, "key")
+        st, d, _t = get_json(f"/api/login/status?account={A}")
+        check("登录=X(不在库)/查看=A -> account_in_store=false + mismatch",
+              st == 200 and d.get("account_in_store") is False and d.get("view_account_mismatch") is True
+              and d.get("sync_allowed") is False and int(d.get("account") or 0) == X_NOT_IMPORTED,
+              f"in_store={d.get('account_in_store')} mismatch={d.get('view_account_mismatch')}")
+
+        # 情形3：未登录
+        flog.login_gate = lambda *a, **k: _fake_gate(0, False)
+        st, d, _t = get_json(f"/api/login/status?account={A}")
+        check("未登录/查看=A -> logged_in=false + sync_allowed=false",
+              st == 200 and d.get("logged_in") is False and d.get("sync_allowed") is False
+              and d.get("account_in_store") is False, f"logged_in={d.get('logged_in')}")
+
+        # 无论登录号是谁，数据接口仍按 account 返回本账号数据，绝不把 A 当 B
+        stA2, dA2, _t = get_json(f"/api/contacts?account={A}")
+        stB2, dB2, _t = get_json(f"/api/contacts?account={B}")
+        check("登录号!=查看号时接口仍按 account 返回各自数据",
+              stA2 == 200 and stB2 == 200 and (BNAME in blob(dB2)) and (BNAME not in blob(dA2)),
+              f"A={stA2} B={stB2}")
+    finally:
+        flog.login_gate = orig_gate
+
+    print("\n===== 5.7) 采集层绑定：新消息 account_qq 恒为框架登录号（task-10）=====")
+    import core.live_sync as lsmod
+    orig_hist = bot_source._history
+    orig_row = bot_source.ob_msg_to_row
+    try:
+        inst = lsmod.LiveSync()
+        inst.uin = B          # 框架登录号 = B；与"被查看账号 A"无关
+        bot_source._history = lambda *a, **k: [{"probe": True}]
+        bot_source.ob_msg_to_row = lambda m, self_uin=0, **k: {
+            "account_qq": int(k.get("account_qq") or self_uin), "kind": k.get("kind") or "c2c",
+            "peer_id": str(k.get("peer_id") or "u_live_probe"),
+            "peer_qq": int(k.get("peer_qq") or 877700009), "ts": 1900000000,
+            "direction": 0, "sender_qq": 877700009, "sender_name": "probe",
+            "msg_type": 0, "text": "LIVE_BIND_PROBE", "source": "bot",
+            "content": None, "media": None,
+        }
+        peer = lsmod._Peer("c2c:u_live_probe", "c2c", "u_live_probe", 877700009)
+        n = inst._poll_peer(peer)
+        rowB = con.execute("SELECT COUNT(*) FROM messages WHERE account_qq=? AND text='LIVE_BIND_PROBE'",
+                           (B,)).fetchone()[0]
+        rowA = con.execute("SELECT COUNT(*) FROM messages WHERE account_qq=? AND text='LIVE_BIND_PROBE'",
+                           (A,)).fetchone()[0]
+        check("采集入库 account_qq == 框架登录号 B（查看账号 A 不受影响）",
+              n >= 1 and rowB >= 1 and rowA == 0, f"inserted={n} B={rowB} A={rowA}")
+        con.execute("DELETE FROM messages WHERE text='LIVE_BIND_PROBE'")
+        con.commit()
+    finally:
+        bot_source._history = orig_hist
+        bot_source.ob_msg_to_row = orig_row
+
     print("\n===== 6) DELETE 账号的双向隔离 =====")
     rd = client.delete(f"/api/accounts/{B}")
     b_gone = con.execute("SELECT COUNT(*) FROM accounts WHERE account_qq=?", (B,)).fetchone()[0] == 0

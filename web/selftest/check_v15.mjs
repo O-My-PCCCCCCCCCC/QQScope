@@ -58,7 +58,7 @@ section("v15 前端：账号相关请求始终带 account");
 const mediaBody = fnBody(src, "mediaHTML");
 ok("mediaHTML 媒体 URL 带 ?account=", /\/api\/media\//.test(mediaBody) && /\?account=/.test(mediaBody));
 const focusBody = fnBody(src, "requestLiveFocus");
-ok("requestLiveFocus 带 account", /account:\s*num\(state\.currentQq/.test(focusBody));
+ok("requestLiveFocus 带 account", /account:\s*(num\(state\.currentQq|loginAccountOf\()/.test(focusBody));
 ok("导出历史列表带 account", /\/api\/export\/list\?account=/.test(src));
 ok("导出下载链接带 account", /\/api\/export\/download\?job=[\s\S]{0,160}?account=/.test(src));
 ok("补下载状态带 account", /\/api\/media\/backfill\/status\?account=/.test(src));

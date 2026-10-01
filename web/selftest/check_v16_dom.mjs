@@ -80,7 +80,15 @@ try {
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
   let seq = 0;
   const pending = new Map();
-  ws.onmessage = (m) => { const j = JSON.parse(m.data); if (j.id && pending.has(j.id)) { pending.get(j.id)(j); pending.delete(j.id); } };
+  const netReqs = [];
+  ws.onmessage = (m) => {
+    const j = JSON.parse(m.data);
+    if (j.id && pending.has(j.id)) { pending.get(j.id)(j); pending.delete(j.id); return; }
+    if (j.method === "Network.requestWillBeSent") {
+      const r = (j.params && j.params.request) || {};
+      netReqs.push({ url: r.url || "", method: r.method || "", postData: r.postData || "" });
+    }
+  };
   const send = (method, params) => new Promise((res) => { const id = ++seq; pending.set(id, res); ws.send(JSON.stringify({ id, method, params: params || {} })); });
   const ev = async (expr, awaitPromise) => {
     const r = await send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: !!awaitPromise });
@@ -94,6 +102,7 @@ try {
   };
   await send("Runtime.enable");
   await send("Page.enable");
+  try { await send("Network.enable"); } catch (e) {}
 
   await ev("try{window.__QQSCOPE_LOGIN__.showGate=function(){};}catch(e){}");
   const gotAcc = await waitFor("(function(){var s=document.getElementById('accountSelect');return !!(s&&s.options&&s.options.length>=2);})()", 30000);
@@ -144,6 +153,7 @@ try {
 
   section("v16 前端 DOM：切到 B 必须重拉 + 清旧 DOM");
   const convA = await ev("(document.getElementById('convItems')||{}).innerHTML||''");
+  const switchIdx = netReqs.length;
   await selectAccount(B_QQ);
   await ev("location.hash='#sessions'"); await wait(2000);
   await waitFor("document.querySelectorAll('#convItems .conv-item').length>0", 20000);
@@ -160,6 +170,20 @@ try {
   ok("B 视角 DOM 出现 B·/B#（正对照）", hasB(omniB), "未见 B 标记");
   ok("B 视角 DOM 零 A·/A#（无 A 数据）", !hasA(omniB),
      "泄漏样本=" + ((omniB.match(/.{0,24}A[·#].{0,24}/) || [""])[0]));
+
+  section("v16/v17 前端网络层：采集不被切账号中断");
+  const starts = netReqs.filter((r) => r.url.indexOf("/api/live/start") >= 0);
+  let startAcc = null;
+  starts.forEach((r) => { try { var o = JSON.parse(r.postData || "{}"); if (o && o.account != null) startAcc = o.account; } catch (e) {} });
+  ok("live/start 用框架登录号 A（与查看账号无关）", starts.length >= 1 && String(startAcc) === A_QQ,
+     "starts=" + starts.length + " account=" + startAcc);
+  const afterSwitch = netReqs.slice(switchIdx);
+  const stopsAfter = afterSwitch.filter((r) => r.url.indexOf("/api/live/stop") >= 0);
+  ok("切账号后没有任何 /api/live/stop（采集不被掐断）", stopsAfter.length === 0, "stops=" + stopsAfter.length);
+  const badLiveAfter = afterSwitch.filter((r) =>
+    r.url.indexOf("/api/live/events?account=" + B_QQ) >= 0 || r.url.indexOf("/api/live/focus") >= 0);
+  ok("切到非登录账号后不再拉它的 live/events、也不再设 focus", badLiveAfter.length === 0,
+     "bad=" + JSON.stringify(badLiveAfter.map((r) => r.url.slice(-60))));
 
   section("v16 前端 DOM：localStorage / JS 错误");
   const keys = await ev("JSON.stringify(Object.keys(localStorage))");

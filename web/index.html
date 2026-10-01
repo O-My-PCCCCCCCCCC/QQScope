@@ -767,6 +767,7 @@ body.gate-mode .app-shell{display:none}
 </div>
 
 <div class="conn-banner hidden" id="connBanner"></div>
+<div class="conn-banner err hidden" id="identityBanner"></div>
 
 <div class="app-shell">
   <!-- ==================== 顶部 masthead ==================== -->
@@ -1264,7 +1265,8 @@ var QQ_EMOJI = {
 
 /* ---------- 统一状态 ---------- */
 var state = {
-  accounts: [], currentQq: null, settings: { data_root: DEFAULT_ROOT, port: 15555, ai: {} },
+  accounts: [], currentQq: null, loginQq: null, loginNick: "", loginInStore: null, _identityApplied: false,
+  settings: { data_root: DEFAULT_ROOT, port: 15555, ai: {} },
   sources: [], health: null,
   sourcesLoading: false, sourcesCheckedAt: 0, sourcesRetry: null, sourcesError: "",
   packLastSync: null, botLastSync: null, botAutoProbed: false, botInfo: null,
@@ -1820,8 +1822,9 @@ function loadAccounts() {
     if (res.ok && res.data) list = Array.isArray(res.data) ? res.data : (res.data.accounts || []);
     if (!list || !list.length) list = bootAccounts;
     state.accounts = (list || []).map(normAccount).filter(Boolean);
-    if (!state.currentQq && state.accounts.length) state.currentQq = state.accounts[0].qq;
+    if (!state.currentQq && state.accounts.length && !state.loginQq) state.currentQq = state.accounts[0].qq;
     renderAccountSelect();
+    applyLoginIdentity({ account: state.loginQq, nickname: state.loginNick, account_in_store: state.loginInStore });
     renderSummary();
     renderRunInfo();
     renderSyncBar();
@@ -1831,15 +1834,89 @@ function loadAccounts() {
 function currentAccount() {
   return state.accounts.filter(function (a) { return a.qq === num(state.currentQq, 0); })[0] || null;
 }
+function loginAccountOf() { return num(state.loginQq, 0); }
+function isViewingLoginAccount() {
+  var lq = loginAccountOf();
+  return !!lq && num(state.currentQq, 0) === lq;
+}
+function resetDerivedCaches() {
+  state.profile = null; state.profileLoadedFor = null; state.profileError = "";
+  state.feeds = null; state.feedLoadedFor = null; state.feedError = ""; state.feedMessage = ""; state.feedNeedLogin = false;
+  state.overview = null; state.report = null; state.reportSource = "none";
+  state.expContacts = []; state.expLoadedFor = null; state.expSelected = {};
+}
+function renderNotImportedBanner() {
+  var b = $("identityBanner");
+  if (!b) return;
+  var lq = loginAccountOf();
+  if (!lq) { b.innerHTML = ""; b.classList.add("hidden"); return; }
+  var nick = state.loginNick ? ("（" + esc(state.loginNick) + "）") : "";
+  var inStore = state.accounts.some(function (a) { return a.qq === lq; });
+  var viewingOther = num(state.currentQq, 0) && num(state.currentQq, 0) !== lq;
+  if (!inStore) {
+    b.className = "conn-banner err";
+    b.innerHTML = "【未导入】当前框架登录 <b>" + esc(lq) + "</b>" + nick +
+      "，该账号尚未导入数据；实时采集仍在为它进行，导入后即可看到。" +
+      ' <a class="btn mini primary" href="#sources">去数据源导入</a>';
+    b.classList.remove("hidden");
+  } else if (viewingOther) {
+    b.className = "conn-banner";
+    b.innerHTML = "实时采集仍在为框架登录号 <b>" + esc(lq) + "</b>" + nick +
+      " 进行；当前仅离线查看归档 <b>" + esc(num(state.currentQq, 0)) + "</b>（发送 / 动态同步已停用）。";
+    b.classList.remove("hidden");
+  } else {
+    b.innerHTML = "";
+    b.classList.add("hidden");
+  }
+}
+function applyLiveIdentity() {
+  /* 采集层永远绑定框架登录号、持续运行；查看账号变化绝不 /api/live/stop。
+     这里只刷新「实时采集仍在为登录号进行」的界面提示。 */
+  renderNotImportedBanner();
+}
+function applyLoginIdentity(status) {
+  status = status || {};
+  var lq = num(status.account, 0);
+  var prevLogin = num(state.loginQq, 0);
+  state.loginQq = lq || null;
+  state.loginNick = status.nickname || "";
+  state.loginInStore = status.account_in_store !== false;
+  if (!state.accounts.length) { renderAccountSelect(); return; }
+  var firstBind = (prevLogin !== lq) || !state._identityApplied;
+  var inAccounts = !!(lq && state.accounts.some(function (a) { return a.qq === lq; }));
+  if (firstBind) {
+    if (lq && inAccounts) {
+      if (num(state.currentQq, 0) !== lq) {
+        state.currentQq = lq;
+        clearAccountScopedView(); resetDerivedCaches();
+        loadProfile(lq);
+        renderRoute();
+      }
+    } else if (lq && !inAccounts) {
+      if (num(state.currentQq, 0) !== 0) {
+        state.currentQq = null;
+        clearAccountScopedView(); resetDerivedCaches();
+        renderRoute();
+      }
+    }
+    applyLiveIdentity();
+  }
+  state._identityApplied = true;
+  renderAccountSelect();
+  renderNotImportedBanner();
+  updateSendBar();
+}
 function renderAccountSelect() {
   var sel = $("accountSelect");
   if ($("unitCode")) $("unitCode").textContent = state.currentQq ? ("QQS-" + state.currentQq) : "QQS-01";
   if (!sel) return;
-  if (!state.accounts.length) { sel.innerHTML = '<option value="">（暂无账号）</option>'; return; }
+  if (!state.accounts.length) { sel.innerHTML = '<option value="">（暂无账号）</option>'; renderNotImportedBanner(); return; }
   sel.innerHTML = state.accounts.map(function (a) {
+    var mark = (state.loginQq && a.qq !== num(state.loginQq, 0)) ? " · 未连接此账号" : "";
     return '<option value="' + a.qq + '"' + (a.qq === num(state.currentQq, 0) ? " selected" : "") + ">" +
-      esc((a.label ? a.label + " · " : "") + a.qq) + "</option>";
+      esc((a.label ? a.label + " · " : "") + a.qq + mark) + "</option>";
   }).join("");
+  renderNotImportedBanner();
 }
 function renderSummary() {
   var el = $("dataSummary");
@@ -3453,6 +3530,11 @@ function onAccountChange() {
   state.live = { ok: null, sinceId: null, status: null, timer: null };
   var bl = $("bubbleList"); if (bl) bl.innerHTML = "";
   var ci = $("convItems"); if (ci) ci.innerHTML = "";
+  var lq = loginAccountOf();
+  if (lq && num(state.currentQq, 0) !== lq) {
+    toast("该账号未登录框架，只能离线查看归档（发送 / 动态同步停用；实时采集仍在为登录号进行）", "err");
+  }
+  applyLiveIdentity(); updateSendBar();
   renderMeCard(); renderSummary(); renderSyncBar();
   loadProfile(state.currentQq);
   renderRoute();
@@ -3572,7 +3654,8 @@ function startAutoRefresh() {
 }
 function requestLiveFocus(c) {
   if (!c) return;
-  apiPost("/api/live/focus", { account: num(state.currentQq, 0), kind: c.kind, peer_id: c.peer_id, peer_qq: c.peer_qq || 0 }).then(function (res) {
+  if (!isViewingLoginAccount()) { applyLiveIdentity(); return; }
+  apiPost("/api/live/focus", { account: loginAccountOf(), kind: c.kind, peer_id: c.peer_id, peer_qq: c.peer_qq || 0 }).then(function (res) {
     state.liveFocus = !!(res.ok && res.data);
     loadLiveStatus();
     if (state.page === "sessions") startSessionPolling();
@@ -3629,7 +3712,8 @@ function applyLiveMessages(list) {
 }
 function liveTick() {
   if (document.hidden || state.page !== "sessions") return;
-  var qq = state.currentQq;
+  if (!isViewingLoginAccount()) { stopLivePoll(); return; }
+  var qq = loginAccountOf();
   if (!qq) return;
   var url = "/api/live/events?account=" + encodeURIComponent(qq) + "&limit=300";
   if (state.live.sinceId != null) url += "&since_id=" + encodeURIComponent(state.live.sinceId);
@@ -3654,6 +3738,7 @@ function liveTick() {
 }
 function startLivePoll() {
   stopAutoRefresh();
+  if (!isViewingLoginAccount()) { stopLivePoll(); return; }
   if (state.live.timer) return;
   if (state.live.ok === false) { startAutoRefresh(); return; }
   state.live.timer = setInterval(liveTick, 3000);
@@ -3927,6 +4012,7 @@ function sendDisabledReason(c) {
   if (c.kind === "c2c" && num(c.peer_qq != null ? c.peer_qq : c.peer_id, 0) === num(state.currentQq, 0)) return "这是你自己";
   if (c.kind !== "c2c" && c.kind !== "group") return "该会话类型不支持发送";
   if (!pid || pid === "0") return "缺少会话标识";
+  if (!isViewingLoginAccount()) return "该账号未连接框架，只能离线查看归档（不能发送）";
   if (window.__QQSCOPE_SEND_DISABLED) return "已禁用发送";
   return "";
 }
@@ -4468,6 +4554,9 @@ var LoginGate = (function () {
       framework_running: !!d.framework_running, logged_in: !!d.logged_in,
       account: d.account || null, nickname: d.nickname || "",
       sync_allowed: d.sync_allowed !== false, can_stop: d.can_stop !== false,
+      account_in_store: d.account_in_store !== false,
+      view_account_mismatch: !!d.view_account_mismatch,
+      sync_block_reason: d.sync_block_reason || "", message: d.message || "",
       qr: d.qr || {}, error: null
     };
   }
@@ -4477,13 +4566,16 @@ var LoginGate = (function () {
       framework_running: !!d.running, logged_in: !!d.logged_in,
       account: d.account || null, nickname: d.nickname || "",
       sync_allowed: !!d.logged_in, can_stop: true,
+      account_in_store: !!d.logged_in, view_account_mismatch: false, sync_block_reason: "", message: "",
       qr: { available: !!(d.running && !d.logged_in), url: QR_URL }, error: null
     };
   }
   function fetchStatus() {
     var demo = demoKind();
     if (demo) return Promise.resolve(mockStatus(demo));
-    return apiGet("/api/login/status").then(function (r) {
+    var viewQq = num(state.currentQq, 0);
+    var statusUrl = "/api/login/status" + (viewQq ? ("?account=" + encodeURIComponent(viewQq)) : "");
+    return apiGet(statusUrl).then(function (r) {
       if (r.ok && r.data) return normalize(r.data);
       return apiGet("/api/framework/status").then(function (r2) {
         if (r2.ok && r2.data) return fromFramework(r2.data);
@@ -4512,13 +4604,14 @@ var LoginGate = (function () {
         if (extPid) { renderConnected(s); showExternalLogoutBanner(extPid); }
         else clearConnBanner();
         if (!entered && !forceGate && !manualLock) { renderConnecting(s); setTimeout(enterApp, 450); }
-        else if (entered) { updateAuthChip(s); }
+        else if (entered) { updateAuthChip(s); applyLoginIdentity(s); }
         else { renderConnected(s); }
       } else {
         extPid = 0;
         if (entered) {
           stopAllDataTimers();
           apiPost("/api/live/stop", {});
+          try { resetAppData(); } catch (e) {}
           showGate(s);
           showConnBanner("框架未登录或已断开：实时同步已停止" + (s.framework_running ? "，请重新扫码连接 QQ" : "，请先启动框架"), "err");
         } else if (s.framework_running) renderQr(s);
@@ -4700,7 +4793,9 @@ var LoginGate = (function () {
     Promise.resolve().then(startAppData).then(function () {
       if (!entered) return;   /* 若等待数据期间用户已退出，不要再把实时采集拉起来 */
       startAutoSyncTimer();
-      if (state.currentQq) apiPost("/api/live/start", { account: state.currentQq });
+      var lq = loginAccountOf() || num(status && status.account, 0);
+      if (lq) apiPost("/api/live/start", { account: lq });   /* 采集绑定登录号，与查看账号无关 */
+      applyLiveIdentity();
     });
   }
   /* v14 · 退出登录 / 停止框架：真正的「断开 QQ 登录」
@@ -4878,6 +4973,7 @@ var LoginGate = (function () {
 function resetAppData() {
   /* 1) 内存缓存：账号 / 当前 QQ / 会话 / 消息 / 概览 / 报告 / 导出 / 动态 / 资料 */
   state.accounts = []; state.currentQq = null;
+  state.loginQq = null; state.loginNick = ""; state.loginInStore = null; state._identityApplied = false;
   state.sources = []; state.health = null; state.sourcesError = ""; state._sourcesAt = 0;
   state.overview = null; state.overviewAccount = null;
   state.report = null; state.reportSource = "none";
@@ -4898,7 +4994,7 @@ function resetAppData() {
   state._appDataStarted = false; state._appDataPromise = null;
 
   /* 2) 主界面 DOM：会话列表 / 消息区 / 导出 / AI / 动态 / 概览 等一律清空 */
-  var wipe = ["convItems", "convHead", "bubbleList", "loadMoreBar", "sendErr", "newMsgPill",
+  var wipe = ["identityBanner", "convItems", "convHead", "bubbleList", "loadMoreBar", "sendErr", "newMsgPill",
     "expList", "expHistory", "expResult", "expProgress", "feedList",
     "aiPreview", "aiBox", "kpiGrid", "reportHint", "dailyTable", "peerList", "wordCloud",
     "mediaStats", "voiceStatsLine", "voiceProgressLine", "backfillLine", "backfillProgress",

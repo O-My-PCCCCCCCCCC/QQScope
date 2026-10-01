@@ -444,8 +444,11 @@ async def framework_logout(request: Request):
 
 # ── 登录门 ──────────────────────────────────────────────────────────────────
 @router.get("/api/login/status")
-def login_status():
+def login_status(account: int | None = None):
     """登录门（前端首屏唯一判据）：logged_in=true 直接进主界面，false 才显示二维码。
+
+    task-10 身份绑定：可传 ?account=<被查看的账号>。传入且 != 框架登录号时，sync_allowed=false，
+    并返回 account_in_store / view_account_mismatch / sync_block_reason，避免 UI 把登录号与查看号脱钩。
 
     快路径：端口探测 + get_login_info 实查（0.4s 超时 / 2s 缓存）——不查 WMI、
     不 spawn 子进程，热路径 <5ms，超时立刻用端口兜底，绝不卡首屏。
@@ -462,4 +465,32 @@ def login_status():
     gate["pid"] = pid                                   # 当前框架 PID（0=没找到）
     gate["can_force"] = bool(pid and framework_log.is_framework_proc(pid))  # 身份校验通过才可强制停
     gate["qrcode_url"] = "/api/framework/qrcode"
+
+    # ── task-10 身份绑定：框架登录号 vs 被查看账号 ───────────────────────────
+    login_qq = int(gate.get("account") or 0)
+    view_qq = int(account) if account else 0
+    in_store = False
+    if login_qq:
+        try:
+            from core import store
+            con = store.connect()
+            try:
+                in_store = bool(con.execute(
+                    "SELECT 1 FROM accounts WHERE account_qq=?", (login_qq,)).fetchone())
+            finally:
+                con.close()
+        except Exception:  # noqa: BLE001
+            in_store = False
+    gate["account"] = login_qq
+    gate["account_in_store"] = bool(in_store)
+    gate["view_account"] = view_qq or None
+    gate["view_account_mismatch"] = bool(view_qq and login_qq and view_qq != login_qq)
+    if gate["view_account_mismatch"]:
+        gate["sync_allowed"] = False
+        gate["sync_block_reason"] = "account_mismatch"
+        gate["message"] = (
+            f"当前框架登录 {login_qq}，与正在查看的账号 {view_qq} 不一致；"
+            f"为避免串号，已停用实时同步 / 发送 / 动态同步。")
+    else:
+        gate["sync_block_reason"] = ""
     return gate
