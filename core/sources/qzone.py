@@ -814,6 +814,11 @@ def sync(opts: dict | None = None, progress=None) -> dict:
     cred, meta = resolve_credential(opts, strict=True)
     me = int(cred.get("uin") or 0)
     account_qq = int(opts.get("account_qq") or me)
+    # 多账号隔离：QZone 凭据（cookie/uin）是全局单例，绝不能用它把别人的动态写进 account_qq。
+    if opts.get("account_qq") and me and int(opts["account_qq"]) != me:
+        raise RuntimeError(
+            "QZONE_ACCOUNT_MISMATCH：QZone 登录态是全局单例（当前 uin=%s），不能用它同步账号 %s 的动态；"
+            "请先在该账号下登录 QZone，或显式关闭动态同步。" % (me, int(opts["account_qq"])))
     scope = str(opts.get("scope") or "mine").lower()
     if scope not in ("mine", "friends", "all"):
         scope = "mine"

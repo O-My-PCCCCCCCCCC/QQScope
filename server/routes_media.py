@@ -269,6 +269,9 @@ async def media_backfill_start(body: dict | None = None):
 @router.get("/api/media/backfill/status")
 def media_backfill_status(job: str | None = None, account: int | None = None):
     '''查补下载任务进度 / 结果；不传 job 就返回当前或最近一个任务。'''
+    if not account:
+        return JSONResponse({"error": "缺少 account（多账号隔离：补下载状态必须指定账号）"},
+                            status_code=400)
     with _JOBS_LOCK:
         if job:
             j = _JOBS.get(job)
@@ -286,6 +289,9 @@ def media_backfill_status(job: str | None = None, account: int | None = None):
 @router.post("/api/media/backfill/stop")
 def media_backfill_stop(job: str | None = None, account: int | None = None):
     '''请求中断补下载任务（当前这一条下载完才停）。'''
+    if not account:
+        return JSONResponse({"error": "缺少 account（多账号隔离：补下载停止必须指定账号）"},
+                            status_code=400)
     with _JOBS_LOCK:
         jid = job or _ACTIVE_JOB
         j = _JOBS.get(jid) if jid else None

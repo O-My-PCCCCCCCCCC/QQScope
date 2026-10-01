@@ -115,18 +115,20 @@ async def api_send(request: Request):
     if kind not in ("c2c", "group"):
         return _err("kind 只能是 c2c 或 group", 400)
 
-    # 2.5) 安全策略：默认只许发给自己；群聊默认禁止
+    # 2.5) 多账号隔离：dry_run 也必须先校验身份，禁止静默跨账号
+    login = _login_qq()
+    if login and account_qq != login:
+        _log("warn", f"拒绝跨账号发送（{who}）：请求 {account_qq}，当前登录 {login}")
+        return _err(f"account_qq（{account_qq}）与当前框架登录账号（{login}）不一致，已拒绝发送",
+                    400, code="account_mismatch")
+
+    # 2.6) 安全策略：默认只许发给自己；群聊默认禁止
     policy = _send_policy()
     if bool(b.get("dry_run")) or bool(policy.get("dry_run")):
         _log("info", f"演练模式（{who}）：已校验但不真实发送：{text[:60]}")
         return {"ok": True, "dry_run": True, "message_id": None,
                 "would_send": {"kind": kind, "peer_id": peer_id, "peer_qq": peer_qq, "text": text[:200]}}
 
-    login = _login_qq()
-    if login and account_qq != login:
-        _log("warn", f"拒绝跨账号发送（{who}）：请求 {account_qq}，当前登录 {login}")
-        return _err(f"account_qq（{account_qq}）与当前框架登录账号（{login}）不一致，已拒绝发送",
-                    400, code="account_mismatch")
     if kind == "group" and not policy.get("allow_groups"):
         _log("warn", f"策略拦截群发（{who}）")
         return _err("安全策略：默认禁止向群聊发送。确认要开启请在设置里打开「允许发送到群聊」",

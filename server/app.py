@@ -284,6 +284,8 @@ async def source_sync(sid: str, request: Request):
         res = mod.sync(opts or {}, progress=lambda st, pc, ms: set_progress(sid, st, pc, ms))
     except Exception as exc:  # noqa: BLE001
         set_progress(sid, "失败", 0, str(exc))
+        if "QZONE_ACCOUNT_MISMATCH" in str(exc):
+            return fail(str(exc).replace("QZONE_ACCOUNT_MISMATCH：", ""), 400)
         if getattr(exc, "need_login", False):
             return JSONResponse({"error": str(exc), "need_login": True}, status_code=502)
         return fail(f"同步失败：{exc}", 500)

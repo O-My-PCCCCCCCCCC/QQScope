@@ -164,6 +164,10 @@ def delete_account(account_qq: int) -> None:
     with tx() as con:
         con.execute("DELETE FROM messages WHERE account_qq=?", (int(account_qq),))
         con.execute("DELETE FROM contacts WHERE account_qq=?", (int(account_qq),))
+        try:  # feeds 由 qzone schema 建，可能不存在；删除账号时必须一并清掉
+            con.execute("DELETE FROM feeds WHERE account_qq=?", (int(account_qq),))
+        except sqlite3.OperationalError:
+            pass
         con.execute("DELETE FROM accounts WHERE account_qq=?", (int(account_qq),))
 
 

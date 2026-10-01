@@ -145,6 +145,9 @@ def _do_sync(opts: dict):
     try:
         return qzone.sync(opts or {})
     except Exception as exc:  # noqa: BLE001
+        if "QZONE_ACCOUNT_MISMATCH" in str(exc):
+            return _err(str(exc).replace("QZONE_ACCOUNT_MISMATCH：", ""), 400,
+                        status="account_mismatch", reason="account_mismatch")
         reason = getattr(exc, "reason", "error")
         need = bool(getattr(exc, "need_login", False)) or reason == "need_login"
         return _err(str(exc) or exc.__class__.__name__, 502,

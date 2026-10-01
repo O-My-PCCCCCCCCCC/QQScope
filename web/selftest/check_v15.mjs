@@ -78,7 +78,7 @@ ok("routes_media /api/media/{id} 有 account 参数", /def media_file\([\s\S]{0,
 ok("routes_media 校验 row.account_qq == account", /row\["account_qq"\][\s\S]{0,40}?!= account/.test(mediaSrc));
 ok("routes_media data_quality 缺 account -> 400", /data_quality[\s\S]{0,400}?if not account/.test(mediaSrc));
 ok("media.index_stats 按账号", /media\.index_stats\(account\)/.test(mediaSrc));
-ok("routes_media backfill/stop 校验账号归属", /def media_backfill_stop\([\s\S]{0,400}?任务不属于该账号/.test(mediaSrc));
+ok("routes_media backfill/stop 校验账号归属", /def media_backfill_stop\([\s\S]{0,900}?if not account[\s\S]{0,900}?任务不属于该账号/.test(mediaSrc));
 const feedsSrc = read("server/routes_feeds.py");
 ok("routes_feeds 缺 account -> 400", /if not account:[\s\S]{0,120}?account_required/.test(feedsSrc));
 ok("routes_feeds 不再用全局 qzone uin 兜底", !/account = int\(cs\.get\("uin"\)/.test(feedsSrc));
