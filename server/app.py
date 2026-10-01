@@ -571,6 +571,25 @@ def main() -> None:
     print(f"  数据根目录: {s.get('data_root')}")
     print(f"  统一主库  : {paths.STORE_DB}")
     print(f"  前端产物  : {DIST_HTML} ({'存在' if DIST_HTML.exists() else '未构建'})")
+    # 浏览器用 http://localhost:15555 打开时，会先试 IPv6 ::1；原来只绑 0.0.0.0（IPv4），
+    # 于是每次请求都要等约 2 秒的 IPv6 回退 —— 轮询下表现为「网页和后台通信有问题」。
+    # 这里在主服务之外**再挂一个 IPv6 回环监听**（::1）：
+    #   · 127.0.0.1 / 局域网 IP -> IPv4 主服务（不变，最稳）
+    #   · localhost / [::1]     -> IPv6 附加监听（快）
+    # 附加监听起不来就静默跳过，绝不影响主服务。
+    def _serve_v6() -> None:
+        try:
+            cfg = uvicorn.Config(app, host="::1", port=int(port), log_level="warning")
+            uvicorn.Server(cfg).run()
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [提示] IPv6 回环监听未启用：{exc}")
+
+    try:
+        threading.Thread(target=_serve_v6, name="qqscope-v6", daemon=True).start()
+        print(f"  监听地址  : 0.0.0.0:{port} + [::1]:{port}")
+    except Exception:  # noqa: BLE001
+        print(f"  监听地址  : 0.0.0.0:{port}")
+
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
 
 
