@@ -698,16 +698,24 @@ def _upgrade_legacy_rows(rows: list[dict]) -> tuple[list[dict], int, int]:
     """
     if not rows:
         return rows, 0, 0
-    try:
-        con = store.connect()
-    except Exception:
-        return rows, 0, 0
     to_insert: list[dict] = []
     migrated = deduped = 0
     key_sql = ("account_qq=? AND kind=? AND peer_id=? AND ts=? AND direction=? "
                "AND COALESCE(text,'')=COALESCE(?,'')")
+    cons: dict = {}
+
+    def _con(qq):
+        if qq not in cons:
+            cons[qq] = store.connect(qq)
+        return cons[qq]
+
     try:
         for r in rows:
+            try:
+                con = _con(int(r.get("account_qq") or 0))
+            except Exception:
+                to_insert.append(r)
+                continue
             legacy = r.get("_legacy_text")
             has_media = bool(r.get("media"))
             if legacy is None:
@@ -756,15 +764,21 @@ def _upgrade_legacy_rows(rows: list[dict]) -> tuple[list[dict], int, int]:
                 except Exception:
                     to_insert.append(r)
                 continue
-        con.commit()
+        for _c in cons.values():
+            _c.commit()
     except Exception:
-        try:
-            con.rollback()
-        except Exception:
-            pass
+        for _c in cons.values():
+            try:
+                _c.rollback()
+            except Exception:
+                pass
         return rows, 0, 0
     finally:
-        con.close()
+        for _c in cons.values():
+            try:
+                _c.close()
+            except Exception:
+                pass
     return to_insert, migrated, deduped
 
 

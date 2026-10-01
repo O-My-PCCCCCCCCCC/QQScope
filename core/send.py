@@ -231,7 +231,7 @@ def send_text(account_qq, kind, peer_id, peer_qq, text) -> dict:
 
     if added:
         try:
-            with store.tx() as con:
+            with store.tx(int(uin)) as con:
                 con.execute(
                     "UPDATE contacts SET last_ts=?, last_text=?, msg_count=msg_count+1, "
                     "self_count=self_count+1 WHERE account_qq=? AND kind=? AND peer_id=?",
@@ -246,17 +246,14 @@ def send_text(account_qq, kind, peer_id, peer_qq, text) -> dict:
 
 def send_history(account_qq=None, limit: int = 50) -> list[dict]:
     """本机通过网页发过的消息（source='local_send'），按时间倒序。"""
+    if not account_qq:
+        raise ValueError("send_history 必须指定 account_qq（task-11 每账号独立库）")
     limit = max(1, min(_to_int(limit, 50) or 50, 200))
-    con = store.connect()
+    con = store.connect(account_qq)
     try:
-        if account_qq:
-            cur = con.execute(
-                "SELECT * FROM messages WHERE source=? AND account_qq=? "
-                "ORDER BY ts DESC, id DESC LIMIT ?", (SOURCE, _to_int(account_qq), limit))
-        else:
-            cur = con.execute(
-                "SELECT * FROM messages WHERE source=? ORDER BY ts DESC, id DESC LIMIT ?",
-                (SOURCE, limit))
+        cur = con.execute(
+            "SELECT * FROM messages WHERE source=? AND account_qq=? "
+            "ORDER BY ts DESC, id DESC LIMIT ?", (SOURCE, _to_int(account_qq), limit))
         return [dict(r) for r in cur.fetchall()]
     finally:
         con.close()

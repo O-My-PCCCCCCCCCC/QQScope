@@ -378,14 +378,15 @@ async def framework_stop(request: Request):
 
 @router.post("/api/framework/logout")
 async def framework_logout(request: Request):
-    """退出 QQ 登录。
+    """退出 QQ 登录（前端已二次确认；默认「一次到位」）。
 
     NapCat 没有「登出 QQ」的 OneBot 动作（只有 bot_exit / set_restart，见
     tools/napcat），所以「退出 QQ 登录」= 结束框架进程。分级：
-      Tier 1 优雅     ：发扩展动作 bot_exit，等端口释放           -> mode="bot_exit"
-      Tier 2 自有框架 ：bot_exit 失败但 PID 是本服务启动的       -> mode="stop"
-      Tier 3 显式强制 ：force=true 且 PID 通过身份校验           -> mode="force_stop"
-      兜底            ：外部启动的框架绝不自动杀（返回 external） -> mode="external"
+      Tier 1 优雅     ：force=False 时先发扩展动作 bot_exit，最多等 ~2.4 秒
+      Tier 2/3 结束   ：2 秒内没退出（或 force=True 直接）→ taskkill 结束进程
+                        （自有框架 mode="stop"，外部框架 mode="force_stop"）
+      真失败          ：找不到 / 身份校验不过 / kill 异常 → ok=False + mode="external"
+                        + can_force=False + reason/manual，绝不假装成功
     任何 kill 之前都必须过 is_framework_proc（node.exe + 命令行含 napcat）。
     """
     body = await _body(request)
@@ -393,53 +394,57 @@ async def framework_logout(request: Request):
     force = bool(body.get("force"))
     ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     cfg = framework_log.load_framework_cfg()
-    pid = _fw_pid_verified(force=force)
+    pid = _fw_pid_verified(force=force) or _fw_pid_verified(force=True)
 
     ob_host, ob_port = framework_log._host_port(cfg.get("base"), 3000)
     wu_host, wu_port = framework_log._host_port(cfg.get("webui"), 6099)
     pairs = [(ob_host, ob_port), (wu_host, wu_port)]
     port_state = {str(p): framework_log._port_open(h, p) for h, p in pairs}
+    verified = bool(pid and framework_log.is_framework_proc(pid, force=True))
 
-    # ── Tier 1：优雅（NapCat 扩展动作，成功即整个框架退出）────────────────
-    if port_state.get(str(ob_port)):
+    # ── Tier 1：优雅 bot_exit（仅默认退出 + PID 身份校验通过；2 秒不退就升级强杀）──
+    if (not force) and verified and port_state.get(str(ob_port)):
         try:
             framework_log._onebot(cfg, "/bot_exit", timeout=3)
-            freed = _wait_ports_free(pairs, timeout=12.0)
-            if not any(bool(v) for v in freed.values()):
-                if pid and pid == _spawned_pid():
+        except Exception as exc:  # noqa: BLE001
+            _log("info", f"退出登录：bot_exit 未生效（{exc}），按用户确认自动升级为强制结束")
+        else:
+            freed = _wait_ports_free(pairs, timeout=2.4)
+            alive = framework_log.is_framework_proc(pid, force=True)
+            if not alive:
+                if pid == _spawned_pid():
                     _spawned_write(None)
-                _log("warn", f"退出登录：bot_exit 成功，框架已结束（PID {pid or '?'}），"
+                _log("warn", f"退出登录：bot_exit 成功，框架已结束（PID {pid}），"
                              f"操作者 {who}，时间 {ts}")
                 return {"ok": True, "mode": "bot_exit", "pid": pid, "can_force": False,
                         "message": "已退出 QQ 登录（框架已结束）", "ports": freed}
-            _log("warn", f"退出登录：bot_exit 已发送但端口未释放，继续尝试其它方式：{freed}")
-        except Exception as exc:  # noqa: BLE001
-            _log("info", f"退出登录：bot_exit 未生效（{exc}），继续尝试其它方式")
+            _log("warn", f"退出登录：bot_exit 2 秒内未退出（端口={freed}），"
+                         f"按用户确认自动升级为强制结束")
 
-    # ── Tier 2：本服务自己启动的框架 -> 复用 /stop 的 taskkill 路径 ────────
-    if _can_stop(strict=True):
+    # ── Tier 2/3：结束进程（kill 前必过身份校验）──────────────────────────
+    target = pid if verified else 0
+    if not target:
         own = _spawned_pid()
+        if own and framework_log.is_framework_proc(own, force=True):
+            target = own
+    if target:
         listen = framework_log._netstat_listen(force=True)
-        ours = sorted(int(p) for p, owner in listen.items() if int(owner) == own)
-        return _logout_kill(own, ours, cfg, "stop", who, ts, "已退出 QQ 登录（框架已结束）")
+        ours = sorted(int(p) for p, owner in listen.items() if int(owner) == target)
+        own_stop = bool(target == _spawned_pid() and _can_stop(strict=True))
+        mode = "stop" if own_stop else "force_stop"
+        return _logout_kill(target, ours, cfg, mode, who, ts, "已退出 QQ 登录（框架已结束）")
 
-    # ── Tier 3：显式强制（外部框架，必须 force=true + 身份校验）────────────
-    if force and pid and framework_log.is_framework_proc(pid, force=True):
-        listen = framework_log._netstat_listen(force=True)
-        ours = sorted(int(p) for p, owner in listen.items() if int(owner) == pid)
-        return _logout_kill(pid, ours, cfg, "force_stop", who, ts, "已强制结束框架，退出 QQ 登录")
-
-    # ── 兜底：外部启动，绝不自动杀 ────────────────────────────────────────
-    if not pid:
-        # 冷缓存兜底：走到这里已经证明「框架还活着但我们没认出它」，
-        # 强制一次实扫（WMI + 端口持有者），保证前端一定能拿到 PID 决定要不要给「强制停止」。
-        pid = _fw_pid_verified(force=True)
-    can_force = bool(pid and framework_log.is_framework_proc(pid, force=True))
-    msg = (f"框架由外部启动（PID {pid or '未知'}），QQScope 不会自动结束它；"
-           "可点「强制停止框架」或手动关掉框架窗口")
-    _log("warn", f"拒绝自动退出登录（外部框架）：PID={pid or '无'}，操作者 {who}，时间 {ts}")
-    return {"ok": False, "mode": "external", "pid": pid, "can_force": can_force,
-            "message": msg, "ports": port_state}
+    # ── 真失败：身份校验不过 / 找不到框架进程，绝不假装成功 ─────────────────
+    if pid:
+        reason = f"PID {pid} 身份校验未通过（不是 node.exe + 命令行含 napcat 的框架进程），为安全拒绝结束它"
+    else:
+        reason = "找不到 NapCat 框架进程（node.exe + 命令行含 napcat）"
+    manual = ("手动处理：到项目目录双击「关闭机器人框架.bat」，或在任务管理器结束 NapCat/node 进程；"
+              "随后重新双击 ①启动机器人框架.bat 并用手机 QQ 扫码。")
+    _log("error", f"退出登录失败：{reason}；操作者 {who}，时间 {ts}")
+    return {"ok": False, "mode": "external", "pid": pid, "can_force": False,
+            "reason": reason, "manual": manual,
+            "message": f"退出登录失败：{reason}。{manual}", "ports": port_state}
 
 
 # ── 登录门 ──────────────────────────────────────────────────────────────────

@@ -574,8 +574,10 @@ FEED_COLS = ("id", "account_qq", "ts", "author_qq", "author_name", "content",
              "images", "praise", "comments", "forwards", "raw")
 
 
-def _connect():
-    con = store.connect()
+def _connect(account_qq=None):
+    if not account_qq:
+        raise ValueError("qzone._connect 必须指定 account_qq（task-11 每账号独立库）")
+    con = store.connect(account_qq)
     con.executescript(FEEDS_SCHEMA)
     try:  # 老库补齐 comments_json 列（幂等）
         cols = [r[1] for r in con.execute("PRAGMA table_info(feeds)")]
@@ -587,9 +589,17 @@ def _connect():
     return con
 
 
-def init_feeds() -> None:
-    con = _connect()
-    con.close()
+def init_feeds(account_qq=None) -> None:
+    if account_qq:
+        con = _connect(account_qq)
+        con.close()
+        return
+    try:
+        for a in store.list_accounts():
+            con = _connect(int(a["account_qq"]))
+            con.close()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def save_feeds(rows) -> int:
@@ -597,27 +607,38 @@ def save_feeds(rows) -> int:
     rows = [r for r in (rows or []) if r and r.get("id")]
     if not rows:
         return 0
-    con = _connect()
-    try:
-        before = con.execute("SELECT COUNT(*) FROM feeds").fetchone()[0]
-        sets = ",".join(f"{c}=excluded.{c}" for c in FEED_COLS if c != "id")
-        con.executemany(
-            f"INSERT INTO feeds({','.join(FEED_COLS)}) "
-            f"VALUES({','.join('?' * len(FEED_COLS))}) "
-            f"ON CONFLICT(id) DO UPDATE SET {sets}",
-            [tuple(r.get(c) for c in FEED_COLS) for r in rows])
-        con.commit()
-        after = con.execute("SELECT COUNT(*) FROM feeds").fetchone()[0]
-        return int(after - before)
-    finally:
-        con.close()
+    groups: dict = {}
+    for r in rows:
+        try:
+            groups.setdefault(int(r.get("account_qq") or 0), []).append(r)
+        except (TypeError, ValueError):
+            continue
+    n = 0
+    sets = ",".join(f"{c}=excluded.{c}" for c in FEED_COLS if c != "id")
+    for qq, rs in groups.items():
+        if not qq:
+            continue
+        con = _connect(qq)
+        try:
+            before = con.execute("SELECT COUNT(*) FROM feeds").fetchone()[0]
+            con.executemany(
+                f"INSERT INTO feeds({','.join(FEED_COLS)}) "
+                f"VALUES({','.join('?' * len(FEED_COLS))}) "
+                f"ON CONFLICT(id) DO UPDATE SET {sets}",
+                [tuple(r.get(c) for c in FEED_COLS) for r in rs])
+            con.commit()
+            after = con.execute("SELECT COUNT(*) FROM feeds").fetchone()[0]
+            n += int(after - before)
+        finally:
+            con.close()
+    return n
 
 
-def save_comments(feed_id: str, comments: list) -> int:
+def save_comments(account_qq, feed_id: str, comments: list) -> int:
     """只更新评论列表，不动其它字段。"""
     if not feed_id:
         return 0
-    con = _connect()
+    con = _connect(account_qq)
     try:
         cur = con.execute("UPDATE feeds SET comments_json=? WHERE id=?",
                           (json.dumps(comments or [], ensure_ascii=False), str(feed_id)))
@@ -629,7 +650,7 @@ def save_comments(feed_id: str, comments: list) -> int:
 
 def list_feeds(account_qq: int | None = None, limit: int = 20,
                offset: int = 0, scope: str = "all") -> list[dict]:
-    con = _connect()
+    con = _connect(account_qq)
     try:
         sql = "SELECT * FROM feeds WHERE 1=1"
         args: list = []
@@ -670,7 +691,7 @@ def list_feeds(account_qq: int | None = None, limit: int = 20,
 
 
 def count_feeds(account_qq: int | None = None, scope: str = "all") -> int:
-    con = _connect()
+    con = _connect(account_qq)
     try:
         sql = "SELECT COUNT(*) FROM feeds WHERE 1=1"
         args: list = []
@@ -896,7 +917,7 @@ def sync(opts: dict | None = None, progress=None) -> dict:
     saved_comments = 0
     for r in rows:
         if "_comments" in r:
-            save_comments(r["id"], r["_comments"])
+            save_comments(account_qq, r["id"], r["_comments"])
             saved_comments += 1
     total = count_feeds(account_qq, scope=scope)
     msg = (f"新增 {added} 条动态（解析 {fetched} 条，补评论 {saved_comments} 条，"

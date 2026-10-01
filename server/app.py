@@ -12,6 +12,7 @@ from __future__ import annotations
 import collections
 import importlib
 import json
+import os
 import sys
 import threading
 import time
@@ -168,6 +169,16 @@ def fail(msg: str, code: int = 400) -> JSONResponse:
 @app.on_event("startup")
 def _startup() -> None:
     store.init()
+    # task-11：一次性把旧单库 data/qqscope.db 拆成每账号独立库（先备份、旧库改名保留）
+    if str(os.environ.get("QQSCOPE_AUTO_SPLIT", "1")).lower() not in ("0", "false", "no", "off"):
+        try:
+            res = store.migrate_legacy_split()
+            if res.get("ok"):
+                print(f"[迁移] 数据拆分完成：{res.get('message')}")
+            elif res.get("reason") not in (None, "no_legacy", "already_split"):
+                print(f"[迁移] 跳过：{res.get('message') or res.get('reason')}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[迁移] 失败（旧库保持不动）：{exc.__class__.__name__}: {exc}")
     print(f"QQScope {VERSION} 已启动")
 
 
@@ -332,7 +343,7 @@ def report(account: int, limit: int = 30000):
     """给前端分析引擎用：只返回"自己发的 + 有文本"的消息（体积小）。
     前端直接 QQScopeEngine.computeReport(messages, meta) 即可出完整报告，
     情绪词典的唯一真源保持在 app/js/analysis.js，后端不重复实现。"""
-    con = store.connect()
+    con = store.connect(account)
     try:
         rows = con.execute(
             "SELECT ts, direction, kind, peer_id, text FROM messages "

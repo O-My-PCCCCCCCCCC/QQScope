@@ -306,14 +306,25 @@ def update_media_rows(rows: list[dict]) -> int:
     } for r in rows]
     if not data:
         return 0
-    con = store.connect()
-    try:
-        before = con.total_changes
-        con.executemany(_UPDATE_MEDIA_SQL, data)
-        con.commit()
-        return con.total_changes - before
-    finally:
-        con.close()
+    groups: dict = {}
+    for d in data:
+        try:
+            groups.setdefault(int(d.get("account_qq") or 0), []).append(d)
+        except (TypeError, ValueError):
+            continue
+    n = 0
+    for qq, rs in groups.items():
+        if not qq:
+            continue
+        con = store.connect(qq)
+        try:
+            before = con.total_changes
+            con.executemany(_UPDATE_MEDIA_SQL, rs)
+            con.commit()
+            n += con.total_changes - before
+        finally:
+            con.close()
+    return n
 
 
 def _to_store_row(rec: dict, account_qq: int) -> dict | None:

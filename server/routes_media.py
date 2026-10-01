@@ -60,7 +60,7 @@ def media_file(msg_id: int,
         return JSONResponse({"error": "缺少 account（多账号隔离：媒体必须指定所属账号）",
                              "source": "missing"}, status_code=400)
     account = int(account)
-    con = store.connect()
+    con = store.connect(account)
     try:
         row = con.execute(
             "SELECT id, account_qq, kind, peer_id, ts, text, media FROM messages WHERE id=?",

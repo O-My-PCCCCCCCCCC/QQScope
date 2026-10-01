@@ -699,7 +699,7 @@ body.gate-mode .app-shell{display:none}
 .auth-chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-dim);
   border:1px solid var(--line);border-radius:3px;padding:5px 9px;background:rgba(90,210,255,.05);white-space:nowrap}
 .auth-chip b{color:var(--ice);font-weight:600}
-.auth-chip.hidden,#btnLogout.hidden{display:none!important}
+.auth-chip.hidden,#btnLogout.hidden,#btnFullExit.hidden{display:none!important}
 .conn-banner{position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:30;display:flex;align-items:center;gap:8px;
   max-width:min(760px,92vw);padding:8px 13px;border:1px solid var(--warn);border-radius:3px;background:rgba(20,16,8,.92);color:var(--warn);font-size:12.5px}
 [data-theme="light"] .conn-banner{background:rgba(255,248,232,.96)}
@@ -743,6 +743,7 @@ body.gate-mode .app-shell{display:none}
       <button class="btn mini" id="btnQrRefresh" type="button">刷新二维码</button>
       <button class="btn mini" id="btnFwStart" type="button">启动框架</button>
       <button class="btn mini danger" id="btnFwStop" type="button">退出并停止框架</button>
+      <button class="btn mini danger" id="btnGateFullExit" type="button">全部退出</button>
     </div>
     <button class="btn primary login-enter" id="btnEnterApp" type="button" disabled>进入 QQScope →</button>
     <div class="login-foot">
@@ -791,6 +792,7 @@ body.gate-mode .app-shell{display:none}
       </div>
       <span class="auth-chip hidden" id="authChip">已连接 <b id="authNick">—</b></span>
       <button class="btn mini" id="btnLogout" type="button" hidden>退出登录</button>
+      <button class="btn mini danger" id="btnFullExit" type="button" hidden>全部退出</button>
       <button class="btn mini" id="btnRefresh" title="重新拉取后端数据">刷新 / SYNC</button>
     </div>
   </header>
@@ -4538,6 +4540,7 @@ var LoginGate = (function () {
   var gate = null, TPL = "", pollTimer = null, confirmCb = null;
   var entered = false, forceGate = false, manualLock = false, status = null, lastQrT = "";
   var extPid = 0;   /* v14：外部框架未退出的 PID（>0 时横幅常驻，等用户「强制停止框架」） */
+  var logoutFail = null;   /* v18b：退出失败原因/手动办法，常驻红字直到框架真的退出 */
   var QR_URL = "/api/framework/qrcode";
 
   function qs(name) { try { return new URLSearchParams(location.search).get(name); } catch (e) { return null; } }
@@ -4601,13 +4604,16 @@ var LoginGate = (function () {
         if (entered) showConnBanner("框架状态接口未就绪：" + s.error, "warn");
         else { if (!gate.classList.contains("hidden")) renderDown(s); }
       } else if (s.logged_in) {
-        if (extPid) { renderConnected(s); showExternalLogoutBanner(extPid); }
+        if (logoutFail) renderLogoutFailure();
+        else if (extPid) { renderConnected(s); showExternalLogoutBanner(extPid); }
         else clearConnBanner();
         if (!entered && !forceGate && !manualLock) { renderConnecting(s); setTimeout(enterApp, 450); }
         else if (entered) { updateAuthChip(s); applyLoginIdentity(s); }
         else { renderConnected(s); }
+        if (logoutFail) renderLogoutFailure();   /* 失败红字/原因常驻：扛过 renderConnected 的 setHint */
       } else {
         extPid = 0;
+        logoutFail = null;
         if (entered) {
           stopAllDataTimers();
           apiPost("/api/live/stop", {});
@@ -4686,6 +4692,7 @@ var LoginGate = (function () {
     setBtn("btnQrRefresh", true, "刷新二维码");
     setBtn("btnFwStart", false);
     setBtn("btnFwStop", true);
+    setBtn("btnGateFullExit", true, "全部退出");
     var enter = $("btnEnterApp"); if (enter) { enter.disabled = true; enter.textContent = "进入 QQScope →"; }
     setHint("用手机 QQ 扫一扫完成连接。只扫这一次，之后 QQScope 会自动复用这个登录态，不会再出现此页。");
     renderQrImage(s);
@@ -4697,6 +4704,7 @@ var LoginGate = (function () {
     setBtn("btnQrRefresh", false);
     setBtn("btnFwStart", true, "启动框架");
     setBtn("btnFwStop", false);
+    setBtn("btnGateFullExit", false);
     var enter = $("btnEnterApp"); if (enter) { enter.disabled = true; enter.textContent = "进入 QQScope →"; }
     setHint("机器人框架还没启动：点「启动框架」，或到项目目录双击 <b>①启动机器人框架.bat</b>（NapCat 会让你用手机 QQ 扫码登录一次）。");
     setLoginFwInfo(s);
@@ -4708,6 +4716,7 @@ var LoginGate = (function () {
     setBtn("btnQrRefresh", false);
     setBtn("btnFwStart", false);
     setBtn("btnFwStop", true);
+    setBtn("btnGateFullExit", true, "全部退出");
     var enter = $("btnEnterApp"); if (enter) { enter.disabled = false; enter.textContent = "进入 QQScope →"; }
     setHint("QQ 已连接，点下方进入；<b>无需再次扫码</b>。");
     updateAuthChip(s);
@@ -4723,6 +4732,7 @@ var LoginGate = (function () {
     setBtn("btnQrRefresh", true, "重试");
     setBtn("btnFwStart", true, "启动框架");
     setBtn("btnFwStop", false);
+    setBtn("btnGateFullExit", false);
     var enter = $("btnEnterApp"); if (enter) { enter.disabled = false; enter.textContent = "离线进入 QQScope →"; }
     setHint(esc((s && s.error) || "登录状态接口未就绪") + "。会继续重试；也可以先离线浏览已入库数据。", true);
   }
@@ -4748,7 +4758,7 @@ var LoginGate = (function () {
   function stopFramework() {
     openConfirm({
       eyebrow: "STOP FRAMEWORK", title: "退出并停止框架",
-      body: EXIT_COPY,
+      body: FULL_EXIT_COPY,
       okText: "退出并停止框架", danger: true,
       onOk: function () {
         resetAppData();
@@ -4760,6 +4770,7 @@ var LoginGate = (function () {
     if ($("btnQrRefresh")) $("btnQrRefresh").addEventListener("click", refreshQr);
     if ($("btnFwStart")) $("btnFwStart").addEventListener("click", startFramework);
     if ($("btnFwStop")) $("btnFwStop").addEventListener("click", stopFramework);
+    if ($("btnGateFullExit")) $("btnGateFullExit").addEventListener("click", fullExitConfirm);
     if ($("btnEnterApp")) $("btnEnterApp").addEventListener("click", function () { enterApp(); });
     HoloBg.bindLoginToggle();
   }
@@ -4779,6 +4790,7 @@ var LoginGate = (function () {
     if (entered) return;
     entered = true;
     extPid = 0;   /* 用户主动进入：清掉「外部框架未退出」提示 */
+    logoutFail = null;
     if (status && status.account) { try { localStorage.setItem("qqscope_authed", String(status.account)); } catch (e) {} }
     if (status && status.nickname) { try { localStorage.setItem("qqscope_authed_nick", status.nickname); } catch (e) {} }
     gate.innerHTML = "";
@@ -4788,6 +4800,7 @@ var LoginGate = (function () {
     HoloBg.setMode("main");
     if ($("authChip")) $("authChip").classList.remove("hidden");
     if ($("btnLogout")) $("btnLogout").removeAttribute("hidden");
+    if ($("btnFullExit")) $("btnFullExit").removeAttribute("hidden");
     updateAuthChip(status);
     clearConnBanner();
     Promise.resolve().then(startAppData).then(function () {
@@ -4803,8 +4816,14 @@ var LoginGate = (function () {
    *  - NapCat 没有登出动作，所以「退出 QQ 登录」= 结束框架进程（后端分级 + PID 身份校验）
    *  - 外部启动的框架后端绝不自动杀：返回 external，由用户点「强制停止框架」二次确认 */
   var EXIT_COPY =
-    "<b>这会真正退出 QQ 登录：</b><br>" +
+    "<b>这会真正退出 QQ 登录（优雅退出 2 秒未生效会自动强制结束）：</b><br>" +
     "· 断开当前 QQ 登录、停止实时同步（NapCat 框架会一并结束）；<br>" +
+    "· 下次使用需要重新启动框架并（用手机 QQ）重新扫码登录；<br>" +
+    "· <b>本地归档数据会保留</b>，不会被清除（数据在本机 data/ 目录；要删除请用账号管理里的删除）。";
+
+  var FULL_EXIT_COPY =
+    "<b>「全部退出」会同时退出 Web 与 QQ 框架：</b><br>" +
+    "· 断开 QQ 登录并结束 NapCat 框架、停止自动采集与实时同步；<br>" +
     "· 下次使用需要重新启动框架并（用手机 QQ）重新扫码登录；<br>" +
     "· <b>本地归档数据会保留</b>，不会被清除（数据在本机 data/ 目录；要删除请用账号管理里的删除）。";
 
@@ -4817,6 +4836,7 @@ var LoginGate = (function () {
   }
 
   function prepareLogout() {
+    logoutFail = null;   /* 重新发起退出：先清掉上一次的失败红字 */
     try { localStorage.removeItem("qqscope_authed"); localStorage.removeItem("qqscope_authed_nick"); } catch (e) {}
     try { stopAllDataTimers(); } catch (e) {}
     entered = false; manualLock = true;
@@ -4848,36 +4868,89 @@ var LoginGate = (function () {
     });
   }
 
+  function logoutManualLine() {
+    var m = (logoutFail && logoutFail.manual) || "";
+    return /^手动处理/.test(m) ? m : ("手动处理：" + m);
+  }
+
+  function renderLogoutFailure() {
+    if (!logoutFail) return;
+    var b = $("connBanner");
+    if (b) {
+      b.className = "conn-banner err";
+      b.innerHTML = "<b>退出登录失败：框架没有结束</b>，QQ 可能仍处于登录态。<br>原因：" + esc(logoutFail.reason) +
+        (logoutFail.pid ? ("（框架 PID " + esc(String(logoutFail.pid)) + "）") : "") +
+        "<br>" + esc(logoutManualLine()) + "<br><b>本地归档数据会保留</b>，不会被清除。";
+      b.classList.remove("hidden");
+    }
+    try { setHint("退出登录失败：框架没有结束。" + esc(logoutFail.reason) + " " + esc(logoutManualLine()), true); } catch (e) {}
+  }
+
+  function showLogoutFailure(d, r) {
+    d = d || {};
+    extPid = 0;
+    logoutFail = {
+      pid: num(d.pid, 0),
+      reason: d.reason || d.message || (r && (r.error || r.message)) || "后端未返回失败原因（可能后端版本较旧）",
+      manual: d.manual || "可到项目目录双击「关闭机器人框架.bat」，或在任务管理器结束 NapCat/node 进程，然后重新双击 ①启动机器人框架.bat 并用手机 QQ 扫码。"
+    };
+    renderLogoutFailure();
+    toast("退出登录失败：框架未结束，请手动关闭", "err");
+  }
+
   function doLogout(force) {
     prepareLogout();
     showConnBanner("正在退出 QQ 登录并结束框架…", "warn");
     apiPost("/api/live/stop", {});
-    return requestFrameworkLogout(force).then(function (r) {
-      var d = (r && r.data) || {};
-      var mode = d.mode || "";
-      if (mode === "bot_exit" || mode === "stop" || mode === "force_stop") {
+    function apply(d, r) {
+      var mode = (d && d.mode) || "";
+      if (d && d.ok !== false && (mode === "bot_exit" || mode === "stop" || mode === "force_stop")) {
         extPid = 0;
+        logoutFail = null;
         clearConnBanner();
-        showConnBanner("已退出登录，框架已结束；下次使用请重新双击 ①启动机器人框架.bat 并扫码", "warn");
+        try { setHint("已退出登录，框架已结束。下次使用请重新启动框架并用手机 QQ 扫码。", false); } catch (e) {}
+        showConnBanner("已退出登录并结束框架；下次使用请重新双击 ①启动机器人框架.bat 并扫码", "warn");
         toast("已退出登录，框架已结束", "ok");
         lastQrT = "";
-      } else if (mode === "external") {
-        extPid = num(d.pid, 0) || 1;
-        showExternalLogoutBanner(extPid);
-        if (!d.can_force) toast("已退出本地会话；外部框架仍在线，请手动关闭框架窗口", "warn");
-        else toast("已退出本地会话；框架仍在运行，可「强制停止框架」", "warn");
-      } else {
-        extPid = 0;
-        clearConnBanner();
-        showConnBanner("已退出本地会话（实时同步已停止）" + (r && r.error ? "；框架退出接口返回：" + r.error : "") +
-          "。若 QQ 仍显示在线，请手动关闭框架窗口。", "warn");
-        toast("已退出本地会话", "warn");
+        poll();
+        return r;
       }
+      if (mode === "external" && d.can_force && !force) {
+        /* 优雅退出（bot_exit）没生效，但后端确认 PID 是 node+napcat：
+           用户已二次确认「退出登录」= 明确意图，自动升级为强制结束，保证一次到位。 */
+        toast("优雅退出未生效，正在强制结束框架…", "warn");
+        force = true;
+        return requestFrameworkLogout(true).then(function (r2) {
+          var d2 = (r2 && r2.data) || {};
+          if (d2.mode === "external" || d2.ok === false) {
+            extPid = num(d2.pid, 0) || 1;
+            showExternalLogoutBanner(extPid);   /* 保留手动入口（旧版横幅） */
+          }
+          return apply(d2, r2);
+        });
+      }
+      /* 真失败：红字 + 原因 + 手动办法，绝不静默 */
       poll();
+      showLogoutFailure(d, r);
       return r;
+    }
+    return requestFrameworkLogout(force).then(function (r) {
+      return apply((r && r.data) || {}, r);
     }, function (e) {
       poll();
-      showConnBanner("退出登录请求失败：" + ((e && e.message) || e), "err");
+      showLogoutFailure(null, { error: (e && e.message) || String(e) });
+    });
+  }
+
+  function fullExitConfirm() {
+    openConfirm({
+      eyebrow: "FULL SIGN OUT", title: "全部退出",
+      body: FULL_EXIT_COPY,
+      okText: "全部退出", danger: true,
+      onOk: function () {
+        resetAppData();
+        doLogout(true);   /* 全部退出 = 停实时采集 + framework/logout{force:true} + 清展示层 + 回连接门 */
+      }
     });
   }
 
@@ -4888,7 +4961,7 @@ var LoginGate = (function () {
       okText: "退出登录", danger: true,
       onOk: function () {
         resetAppData();            /* 核心：清空上次登录的会话缓存 + 主界面 DOM */
-        doLogout(false);
+        doLogout(false);           /* 默认一次到位：先 bot_exit，2 秒未退出自动升级 force_stop */
       }
     });
   }
@@ -4932,6 +5005,7 @@ var LoginGate = (function () {
     if ($("confirmCancel")) $("confirmCancel").addEventListener("click", closeConfirm);
     if ($("confirmScrim")) $("confirmScrim").addEventListener("click", function (e) { if (e.target === this) closeConfirm(); });
     if ($("btnLogout")) $("btnLogout").addEventListener("click", logoutUser);
+    if ($("btnFullExit")) $("btnFullExit").addEventListener("click", fullExitConfirm);
   }
   function init() {
     gate = $("loginGate");
@@ -5014,6 +5088,7 @@ function resetAppData() {
   ["badge-pack", "badge-bot"].forEach(function (id) { var el = $(id); if (el) { el.className = "badge"; el.textContent = "—"; } });
   var chip = $("authChip"); if (chip) chip.classList.add("hidden");
   var logoutBtn = $("btnLogout"); if (logoutBtn) logoutBtn.setAttribute("hidden", "hidden");
+  var fullExitBtn = $("btnFullExit"); if (fullExitBtn) fullExitBtn.setAttribute("hidden", "hidden");
 
   /* 3) 纯本地空态重渲染（不发网络请求） */
   try { renderAccountSelect(); } catch (e) {}

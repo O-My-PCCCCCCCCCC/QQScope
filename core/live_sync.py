@@ -374,7 +374,7 @@ class LiveSync:
         if not self.uin:
             return
         try:
-            con = store.connect()
+            con = store.connect(self.uin)
             try:
                 rows = con.execute(
                     "SELECT kind, peer_id, peer_qq, name, COALESCE(last_ts,0) AS last_ts "
@@ -433,7 +433,7 @@ class LiveSync:
         if not self.uin:
             return
         try:
-            with store.tx() as con:
+            with store.tx(self.uin) as con:
                 con.execute("""
                     UPDATE contacts SET
                       msg_count=(SELECT COUNT(*) FROM messages m
@@ -541,7 +541,7 @@ class LiveSync:
                     "next_since": since, "next_id": since_id, "count": 0,
                     "messages": [], "messages_by_peer": {}, "contacts": [],
                     "error": "缺少 account（多账号隔离：增量必须指定账号）"}
-        con = store.connect()
+        con = store.connect(aqq)
         try:
             where = "account_qq=?" if aqq else "1=1"
             args: list = [aqq] if aqq else []

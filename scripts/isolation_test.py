@@ -61,6 +61,11 @@ def setup_temp_root() -> Path:
     (tmp / "data" / "server").mkdir(parents=True, exist_ok=True)
     (tmp / "data_root").mkdir(parents=True, exist_ok=True)
     real = ROOT / "data" / "qqscope.db"
+    if not real.exists():
+        # task-11：真实库已按账号拆分，旧单库被改名保留；夹具仍从旧单库构造
+        alt = ROOT / "data" / "qqscope.db.migrated"
+        if alt.exists():
+            real = alt
     dst = tmp / "data" / "qqscope.db"
     mode = "none"
     if real.exists():
@@ -86,7 +91,37 @@ def setup_temp_root() -> Path:
     return tmp
 
 
-# ── 真实双账号夹具 ──────────────────────────────────────────────────────────
+# ── 真实双账号夹具（task-11：每账号独立库 -> 用 ATTACH + TEMP VIEW 做真值并集）──
+def _test_con():
+    """master 连接 + ATTACH 各账号库 + TEMP VIEW(messages/contacts/feeds) 的并集视图。"""
+    from core import paths, store
+    m = store.connect()
+    attached = []
+    for qq in (A, B):
+        dbp = paths.account_db(qq)
+        if dbp.exists():
+            try:
+                m.execute("ATTACH DATABASE ? AS t%d" % qq, (str(dbp),))
+                attached.append(qq)
+            except Exception:  # noqa: BLE001
+                pass
+    for name in ("messages", "contacts", "feeds"):
+        parts = []
+        for qq in attached:
+            try:
+                if m.execute("SELECT 1 FROM t" + str(qq) + ".sqlite_master WHERE type='table' AND name=?",
+                             (name,)).fetchone():
+                    parts.append(f"SELECT * FROM t{qq}.{name}")
+            except Exception:  # noqa: BLE001
+                pass
+        if parts:
+            try:
+                m.execute(f"CREATE TEMP VIEW {name} AS " + " UNION ALL ".join(parts))
+            except Exception:  # noqa: BLE001
+                pass
+    return m
+
+
 def fingerprint(con, qq) -> str:
     h = hashlib.md5()
     for r in con.execute("SELECT account_qq,label,source FROM accounts WHERE account_qq=?", (qq,)):
@@ -109,51 +144,79 @@ def fingerprint(con, qq) -> str:
     return h.hexdigest()
 
 
-def clone_a_to_b(con) -> None:
-    """把 A 的完整数据集克隆成 B，peer_id 不变，打 B·/B# 标记。"""
-    con.execute("INSERT INTO accounts(account_qq,label,source,updated_at) "
-                "SELECT ?, ?||COALESCE(label,''), source, updated_at FROM accounts WHERE account_qq=?",
-                (B, BNAME, A))
-    con.execute(
-        "INSERT INTO contacts(account_qq,kind,peer_id,peer_qq,name,remark,avatar,msg_count,"
-        "self_count,first_ts,last_ts,last_text,source) "
-        "SELECT ?, kind, peer_id, peer_qq, "
-        "CASE WHEN name IS NULL THEN NULL ELSE ?||name END, "
-        "CASE WHEN remark IS NULL THEN NULL ELSE ?||remark END, "
-        "avatar, msg_count, self_count, first_ts, last_ts, "
-        "CASE WHEN last_text IS NULL THEN NULL ELSE ?||last_text END, source "
-        "FROM contacts WHERE account_qq=?", (B, BNAME, BNAME, BTXT, A))
-    con.execute(
-        "INSERT INTO messages(account_qq,kind,peer_id,peer_qq,ts,direction,sender_qq,sender_name,"
-        "msg_type,text,source,content,media) "
-        "SELECT ?, kind, peer_id, peer_qq, ts, direction, sender_qq, sender_name, msg_type, "
-        "CASE WHEN text IS NULL THEN NULL ELSE ?||text END, source, content, media "
-        "FROM messages WHERE account_qq=?", (B, BTXT, A))
-    con.execute(
-        "INSERT OR REPLACE INTO feeds(id,account_qq,ts,author_qq,author_name,content,images,"
-        "praise,comments,forwards,raw,comments_json) "
-        "SELECT ?||id, ?, ts, author_qq, author_name, "
-        "CASE WHEN content IS NULL THEN NULL ELSE ?||content END, images, praise, comments, "
-        "forwards, raw, comments_json FROM feeds WHERE account_qq=?", (BTXT, B, BTXT, A))
-    con.commit()
-
-
-def add_b_only(con) -> None:
-    for i, (pid, pqq) in enumerate(BONLY, 1):
+def clone_a_to_b() -> None:
+    """把 A 的完整数据集克隆成 B 的独立库，peer_id 不变，打 B·/B# 标记。"""
+    from core import paths, store
+    con = store.connect(B)
+    try:
+        con.execute("ATTACH DATABASE ? AS srcdb", (str(paths.account_db(A)),))
+        # B 库里还没有 feeds 表（由 qzone 建）：按 A 的 DDL 建一份，之后显式写 main.<table>
+        try:
+            ddl = con.execute("SELECT sql FROM srcdb.sqlite_master WHERE type='table' AND name='feeds'").fetchone()
+            if ddl and ddl[0]:
+                con.execute(ddl[0])
+        except Exception:  # noqa: BLE001
+            pass
+        con.execute("INSERT OR REPLACE INTO main.accounts(account_qq,label,source,updated_at) "
+                    "SELECT ?, ?||COALESCE(label,''), source, updated_at "
+                    "FROM srcdb.accounts WHERE account_qq=?", (B, BNAME, A))
         con.execute(
-            "INSERT OR REPLACE INTO contacts(account_qq,kind,peer_id,peer_qq,name,remark,msg_count,"
-            "self_count,first_ts,last_ts,last_text,source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-            (B, "c2c", pid, pqq, f"{BNAME}BONLY_{i}", f"{BNAME}BONLY_{i}_R", 2, 1,
-             1700000000, 1700000001, f"{BTXT}BONLY_{i}_LAST", "iso"))
-        con.execute("INSERT INTO messages(account_qq,kind,peer_id,peer_qq,ts,direction,sender_qq,"
-                    "sender_name,msg_type,text,source) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                    (B, "c2c", pid, pqq, 1700000000, 1, pqq, f"{BNAME}BONLY_{i}", 0,
-                     f"{BTXT}BONLY_{i}_MSG1", "iso"))
-        con.execute("INSERT INTO messages(account_qq,kind,peer_id,peer_qq,ts,direction,sender_qq,"
-                    "sender_name,msg_type,text,source) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                    (B, "c2c", pid, pqq, 1700000001, 1, pqq, f"{BNAME}BONLY_{i}", 0,
-                     f"{BTXT}BONLY_{i}_MSG2", "iso"))
-    con.commit()
+            "INSERT OR REPLACE INTO main.contacts(account_qq,kind,peer_id,peer_qq,name,remark,avatar,msg_count,"
+            "self_count,first_ts,last_ts,last_text,source) "
+            "SELECT ?, kind, peer_id, peer_qq, "
+            "CASE WHEN name IS NULL THEN NULL ELSE ?||name END, "
+            "CASE WHEN remark IS NULL THEN NULL ELSE ?||remark END, "
+            "avatar, msg_count, self_count, first_ts, last_ts, "
+            "CASE WHEN last_text IS NULL THEN NULL ELSE ?||last_text END, source "
+            "FROM srcdb.contacts WHERE account_qq=?", (B, BNAME, BNAME, BTXT, A))
+        con.execute(
+            "INSERT OR REPLACE INTO main.messages(account_qq,kind,peer_id,peer_qq,ts,direction,sender_qq,"
+            "sender_name,msg_type,text,source,content,media) "
+            "SELECT ?, kind, peer_id, peer_qq, ts, direction, sender_qq, sender_name, msg_type, "
+            "CASE WHEN text IS NULL THEN NULL ELSE ?||text END, source, content, media "
+            "FROM srcdb.messages WHERE account_qq=?", (B, BTXT, A))
+        con.execute(
+            "INSERT OR REPLACE INTO main.feeds(id,account_qq,ts,author_qq,author_name,content,images,"
+            "praise,comments,forwards,raw,comments_json) "
+            "SELECT ?||id, ?, ts, author_qq, author_name, "
+            "CASE WHEN content IS NULL THEN NULL ELSE ?||content END, images, praise, comments, "
+            "forwards, raw, comments_json FROM srcdb.feeds WHERE account_qq=?", (BTXT, B, BTXT, A))
+        con.commit()
+        con.execute("DETACH DATABASE srcdb")
+    finally:
+        con.close()
+    store.upsert_account(B, BNAME + "B", "iso")
+
+
+def add_b_only() -> None:
+    from core import store
+    con = store.connect(B)
+    try:
+        for i, (pid, pqq) in enumerate(BONLY, 1):
+            con.execute(
+                "INSERT OR REPLACE INTO contacts(account_qq,kind,peer_id,peer_qq,name,remark,msg_count,"
+                "self_count,first_ts,last_ts,last_text,source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (B, "c2c", pid, pqq, f"{BNAME}BONLY_{i}", f"{BNAME}BONLY_{i}_R", 2, 1,
+                 1700000000, 1700000001, f"{BTXT}BONLY_{i}_LAST", "iso"))
+            con.execute("INSERT INTO messages(account_qq,kind,peer_id,peer_qq,ts,direction,sender_qq,"
+                        "sender_name,msg_type,text,source) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                        (B, "c2c", pid, pqq, 1700000000, 1, pqq, f"{BNAME}BONLY_{i}", 0,
+                         f"{BTXT}BONLY_{i}_MSG1", "iso"))
+            con.execute("INSERT INTO messages(account_qq,kind,peer_id,peer_qq,ts,direction,sender_qq,"
+                        "sender_name,msg_type,text,source) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                        (B, "c2c", pid, pqq, 1700000001, 1, pqq, f"{BNAME}BONLY_{i}", 0,
+                         f"{BTXT}BONLY_{i}_MSG2", "iso"))
+            if i == 1:
+                con.execute(
+                    "INSERT INTO messages(account_qq,kind,peer_id,peer_qq,ts,direction,sender_qq,"
+                    "sender_name,msg_type,text,source,content,media) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (B, "c2c", pid, pqq, 1700000002, 1, pqq, f"{BNAME}BONLY_{i}", 0,
+                     BTXT + "BONLY_MEDIA", "iso", None,
+                     json.dumps({"kind": "image", "file": "Pic/only_b.png",
+                                 "name": BTXT + "BONLY_MEDIA.png"}, ensure_ascii=False)))
+        con.commit()
+    finally:
+        con.close()
 # ── 主流程 ──────────────────────────────────────────────────────────────────
 def main() -> int:
     tmp = setup_temp_root()
@@ -165,24 +228,22 @@ def main() -> int:
     import core.sources.bot_source as bot_source
 
     store.init()
-    qzone.init_feeds()
-
-    con = store.connect()
-    accs = [r[0] for r in con.execute("SELECT account_qq FROM accounts")]
+    mig = store.migrate_legacy_split()
+    print(f"[setup] 迁移：{mig.get('message') or mig.get('reason')}"
+          + (f"  备份={mig.get('backup')}" if mig.get("backup") else ""))
+    accs = [a["account_qq"] for a in store.list_accounts()]
     if A not in accs:
         print("[FAIL] 真实副本里找不到账号 A=%s，无法构造双账号夹具" % A)
         return 1
-    if B in accs:
-        con.execute("DELETE FROM messages WHERE account_qq=?", (B,))
-        con.execute("DELETE FROM contacts WHERE account_qq=?", (B,))
-        con.execute("DELETE FROM feeds WHERE account_qq=?", (B,))
-        con.execute("DELETE FROM accounts WHERE account_qq=?", (B,))
-        con.commit()
+    qzone.init_feeds(A)
+
+    con = _test_con()
     fA_before = fingerprint(con, A)
-    clone_a_to_b(con)
-    add_b_only(con)
+    clone_a_to_b()
+    add_b_only()
+    con.close()
+    con = _test_con()
     fA_after = fingerprint(con, A)
-    con.commit()
     nA_msg = con.execute("SELECT COUNT(*) FROM messages WHERE account_qq=?", (A,)).fetchone()[0]
     nB_msg = con.execute("SELECT COUNT(*) FROM messages WHERE account_qq=?", (B,)).fetchone()[0]
     nA_ct = con.execute("SELECT COUNT(*) FROM contacts WHERE account_qq=?", (A,)).fetchone()[0]
@@ -218,13 +279,25 @@ def main() -> int:
                          "AND media=? ORDER BY id LIMIT 1",
                          (B, a_media_kind, a_media_peer, a_media_raw)).fetchone()
         b_media_id = br["id"] if br else None
-    if a_media_id is not None and b_media_id is not None:
+    bonly_media_id = None
+    try:
+        _bm = con.execute("SELECT id FROM messages WHERE account_qq=? AND text=?",
+                          (B, BTXT + "BONLY_MEDIA")).fetchone()
+        bonly_media_id = int(_bm["id"]) if _bm else None
+    except Exception:  # noqa: BLE001
+        bonly_media_id = None
+    if a_media_id is not None:
         rel = a_media.get("file")
         for qq in (A, B):
             fp = tmp / "data_root" / str(qq) / "nt_qq" / "nt_data" / rel
             fp.parent.mkdir(parents=True, exist_ok=True)
             fp.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
-        print(f"[fixture] 媒体 msg: A id={a_media_id} B id={b_media_id} file={rel}")
+        print(f"[fixture] A 媒体 id={a_media_id} file={rel}")
+    if bonly_media_id is not None:
+        fp = tmp / "data_root" / str(B) / "nt_qq" / "nt_data" / "Pic" / "only_b.png"
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        fp.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+        print(f"[fixture] B-only 媒体 id={bonly_media_id}")
 
     # 真值集合
     contact_set = lambda qq: {(r["kind"], str(r["peer_id"])) for r in
@@ -289,11 +362,9 @@ def main() -> int:
         check(f"messages {tag} 完整性(逐 id)", st == 200 and got == truth,
               f"status={st} got={len(got)} truth={len(truth)}")
         if tag == "A":
-            xid = got & B_ids
-            check("messages A 纯净性(零 B id)", st == 200 and not xid, f"泄漏 B id={len(xid)}")
+            check("messages A 纯净性(零 B 标记/零 B-only peer)", st == 200 and pure_A(d)[0], pure_A(d)[1])
         else:
-            check("messages B 纯净性+正对照(含 B#)", st == 200 and (BTXT in blob(d)) and not (got & A_ids),
-                  "应含 B# 且不含 A id")
+            check("messages B 纯净性+正对照(含 B#)", st == 200 and (BTXT in blob(d)), "应含 B#")
     st, d, _t = get_json(f"/api/messages?kind=c2c&peer_id={MPEER[1]}")
     check("messages 缺席 -> 422", st == 422, f"status={st}")
 
@@ -393,7 +464,7 @@ def main() -> int:
         got = ids_of(d, "messages")
         other = A_ids if tag == "B" else B_ids
         check(f"live_events {tag} 完整性(逐 id)", st == 200 and got == truth, f"status={st} got={len(got)} truth={len(truth)}")
-        check(f"live_events {tag} 纯净性", st == 200 and not (got & other) and (pure_A(d)[0] if tag == "A" else True), "")
+        check(f"live_events {tag} 纯净性", st == 200 and (pure_A(d)[0] if tag == "A" else True), "")
     st, d, _t = get_json("/api/live/events")
     check("live_events 缺席 -> 400", st == 400, f"status={st}")
 
@@ -483,19 +554,20 @@ def main() -> int:
     # ── 跨账号 id 探测（media）──────────────────────────────────────────────
     print("\n===== 3) 跨账号 id 探测 / media 归属 =====")
     check("克隆后 A 逐字段不变", fA_before == fA_after, "指纹不一致" if fA_before != fA_after else "")
-    if a_media_id is not None and b_media_id is not None:
+    if a_media_id is not None and bonly_media_id is not None:
         s1, _d1, _t1 = get_json(f"/api/media/{a_media_id}?account={A}")
-        s2, _d2, _t2 = get_json(f"/api/media/{a_media_id}?account={B}")
-        s3, _d3, _t3 = get_json(f"/api/media/{b_media_id}?account={B}")
-        s4, _d4, _t4 = get_json(f"/api/media/{b_media_id}?account={A}")
-        s5, _d5, _t5 = get_json(f"/api/media/{a_media_id}")
-        check("media A 的 id 用 A 视角 -> 200", s1 == 200, f"status={s1}")
-        check("media A 的 id 用 B 视角 -> 拒绝(404)", s2 == 404, f"status={s2}")
-        check("media B 的 id 用 B 视角 -> 200", s3 == 200, f"status={s3}")
-        check("media B 的 id 用 A 视角 -> 拒绝(404)", s4 == 404, f"status={s4}")
+        s2, _d2, _t2 = get_json(f"/api/media/{bonly_media_id}?account={A}")
+        s3, _d3, _t3 = get_json(f"/api/media/{bonly_media_id}?account={B}")
+        s5, _d5, _t5 = get_json(f"/api/media/{bonly_media_id}")
+        check("media A 自己的 id 用 A 视角 -> 200", s1 == 200, f"status={s1}")
+        _r1 = client.get(f"/api/media/{a_media_id}?account={A}")
+        check("media A 文件流带 X-Media-Source=cache", _r1.status_code == 200
+              and _r1.headers.get("X-Media-Source") == "cache", f"header={_r1.headers.get('X-Media-Source')}")
+        check("media B-only 的 id 用 A 视角 -> 拒绝(404)", s2 == 404, f"status={s2}")
+        check("media B-only 的 id 用 B 视角 -> 200", s3 == 200, f"status={s3}")
         check("media 缺 account -> 400", s5 == 400, f"status={s5}")
     else:
-        check("media 跨账号探测夹具", False, "未找到带 file 的媒体消息或 B 克隆 id")
+        check("media 跨账号探测夹具", False, "未找到 A 媒体或 B-only 媒体")
     print("\n===== 4) 缺席即拒绝（账号相关接口全量抽查） =====")
     absent_paths = [
         "/api/contacts", "/api/overview", "/api/feeds", "/api/live/events",
@@ -707,24 +779,35 @@ def main() -> int:
                            (A,)).fetchone()[0]
         check("采集入库 account_qq == 框架登录号 B（查看账号 A 不受影响）",
               n >= 1 and rowB >= 1 and rowA == 0, f"inserted={n} B={rowB} A={rowA}")
-        con.execute("DELETE FROM messages WHERE text='LIVE_BIND_PROBE'")
-        con.commit()
+        _cb = store.connect(B)
+        try:
+            _cb.execute("DELETE FROM messages WHERE text='LIVE_BIND_PROBE'")
+            _cb.commit()
+        finally:
+            _cb.close()
     finally:
         bot_source._history = orig_hist
         bot_source.ob_msg_to_row = orig_row
 
     print("\n===== 6) DELETE 账号的双向隔离 =====")
+    import core.paths as _paths
+    con.close()                      # 先释放对 B 库的 ATTACH（Windows 才能删目录）
     rd = client.delete(f"/api/accounts/{B}")
+    _b_dir_gone = not _paths.account_dir(B, create=False).exists()
+    con = _test_con()
     b_gone = con.execute("SELECT COUNT(*) FROM accounts WHERE account_qq=?", (B,)).fetchone()[0] == 0
     b_msgs = con.execute("SELECT COUNT(*) FROM messages WHERE account_qq=?", (B,)).fetchone()[0]
     b_feeds = con.execute("SELECT COUNT(*) FROM feeds WHERE account_qq=?", (B,)).fetchone()[0]
-    check("DELETE B -> B 消失(含 feeds)", rd.status_code == 200 and b_gone and b_msgs == 0 and b_feeds == 0,
-          f"status={rd.status_code} b_msgs={b_msgs} b_feeds={b_feeds}")
+    check("DELETE B -> B 消失(含目录/feeds)", rd.status_code == 200 and _b_dir_gone and b_gone
+          and b_msgs == 0 and b_feeds == 0,
+          f"status={rd.status_code} dir_gone={_b_dir_gone} b_msgs={b_msgs} b_feeds={b_feeds}")
     check("DELETE B -> A 逐字段不变", fingerprint(con, A) == fA_before, "")
-    clone_a_to_b(con); add_b_only(con); con.commit()
+    clone_a_to_b(); add_b_only()
+    con.close(); con = _test_con()
     check("重新克隆 B 后 A 逐字段不变", fingerprint(con, A) == fA_before, "")
     nB_before_del = con.execute("SELECT COUNT(*) FROM messages WHERE account_qq=?", (B,)).fetchone()[0]
     ra2 = client.delete(f"/api/accounts/{A}")
+    con.close(); con = _test_con()
     nB_after_del = con.execute("SELECT COUNT(*) FROM messages WHERE account_qq=?", (B,)).fetchone()[0]
     a_gone = con.execute("SELECT COUNT(*) FROM accounts WHERE account_qq=?", (A,)).fetchone()[0] == 0
     check("DELETE A -> A 消失且 B 完好(反向)", ra2.status_code == 200 and a_gone and nB_after_del == nB_before_del,

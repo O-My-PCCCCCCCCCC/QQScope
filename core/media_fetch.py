@@ -244,9 +244,9 @@ def save_cache(data: bytes, key: str, ext: str) -> Path:
     return p
 
 
-def backfill(msg_id: int, abs_path) -> bool:
+def backfill(account_qq, msg_id: int, abs_path) -> bool:
     '''把本地缓存路径回填进 messages.media.file（绝对路径，media.resolve 支持）。'''
-    con = store.connect()
+    con = store.connect(account_qq)
     try:
         cur = con.execute(
             "UPDATE messages SET media=json_set(media,'$.file',?) WHERE id=?",
@@ -340,7 +340,7 @@ def list_missing(account_qq, kinds=None, limit=DEFAULT_LIMIT) -> list[dict]:
            "AND json_extract(media,'$.file') IS NULL "
            "AND json_extract(media,'$.kind') IN (" + ph + ") "
            "ORDER BY ts DESC LIMIT ?")
-    con = store.connect()
+    con = store.connect(qq)
     try:
         rows = con.execute(sql, [qq, *ks, lim]).fetchall()
     finally:
@@ -359,7 +359,7 @@ def list_missing(account_qq, kinds=None, limit=DEFAULT_LIMIT) -> list[dict]:
 
 
 # ── 单条补下载 ──────────────────────────────────────────────────────────────
-def _fetch_one(it: dict, rkeys: dict, base=None, token=None) -> dict:
+def _fetch_one(account_qq, it: dict, rkeys: dict, base=None, token=None) -> dict:
     m = it.get("media") or {}
     kind = str(it.get("media_kind") or m.get("kind") or it.get("kind") or "unknown")
     rec = {"id": it.get("id"), "kind": kind, "name": m.get("name"),
@@ -418,7 +418,7 @@ def _fetch_one(it: dict, rkeys: dict, base=None, token=None) -> dict:
     ext = _ext_for(kind, rec["name"], data)
     try:
         p = save_cache(data, rec["md5"] or ("id_" + str(rec["id"])), ext)
-        backfill(rec["id"], p)
+        backfill(account_qq, rec["id"], p)
     except Exception as exc:  # noqa: BLE001
         rec["reason"] = "network" if isinstance(exc, OSError) else "bad_data"
         rec["detail"] = type(exc).__name__
@@ -484,7 +484,7 @@ def fetch_missing(account_qq, kinds=None, limit=50, max_bytes=DEFAULT_MAX_BYTES,
             report["stopped"] = True
             report["reason_hint"] = "达到总字节上限，已提前停止"
             break
-        rec = _fetch_one(it, rkeys, base, token)
+        rec = _fetch_one(qq, it, rkeys, base, token)
         report["items"].append(rec)
         if rec["ok"]:
             report["success"] += 1

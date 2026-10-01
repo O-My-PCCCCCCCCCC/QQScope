@@ -166,7 +166,7 @@ def check(name, cond, extra=""):
 
 
 def _db_counts():
-    con = store.connect()
+    con = store.connect(SELF_UIN)
     try:
         total = con.execute("SELECT COUNT(*) FROM messages WHERE account_qq=? AND source='bot'",
                             (SELF_UIN,)).fetchone()[0]
@@ -181,7 +181,7 @@ def _db_counts():
 
 
 def _media_count():
-    con = store.connect()
+    con = store.connect(SELF_UIN)
     try:
         return con.execute(
             "SELECT COUNT(*) FROM messages WHERE account_qq=? AND source='bot' "
@@ -191,7 +191,7 @@ def _media_count():
 
 
 def _direction_of(kind, peer_id, text):
-    con = store.connect()
+    con = store.connect(SELF_UIN)
     try:
         r = con.execute("SELECT direction FROM messages WHERE account_qq=? AND kind=? "
                         "AND peer_id=? AND text=?", (SELF_UIN, kind, peer_id, text)).fetchone()
@@ -338,7 +338,7 @@ def main():
           bot_source._legacy_raw_to_text("[CQ:flashtransfer,fileSetId=x]") == "[flashtransfer]")
     check("legacy 文本：图片+文本保留尾巴",
           bot_source._legacy_raw_to_text("[CQ:image,file=a.jpg]真好看") == "[图片]真好看")
-    con = store.connect()
+    con = store.connect(SELF_UIN)
     con.execute(
         "INSERT OR IGNORE INTO messages(account_qq,kind,peer_id,peer_qq,ts,direction,"
         "sender_qq,sender_name,msg_type,text,source,content,media) "
@@ -354,7 +354,7 @@ def main():
           f"deduped={r3.get('deduped')}")
     check(f"总量仍为 {EXPECTED_TOTAL}（占位行被清理，不是重复插入）",
           total3 == EXPECTED_TOTAL, f"实际 {total3}")
-    con = store.connect()
+    con = store.connect(SELF_UIN)
     left = con.execute("SELECT COUNT(*) FROM messages WHERE account_qq=? AND text='[@] 你好'",
                        (SELF_UIN,)).fetchone()[0]
     con.close()

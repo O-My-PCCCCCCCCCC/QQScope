@@ -42,7 +42,7 @@ PER_PEER = 100
 # ── 会话候选 ────────────────────────────────────────────────────────────────
 def _store_voice_peers(account_qq: int, limit: int) -> list[dict]:
     '''本库里出现过语音的会话，按最近语音时间倒序（优先扫这些，命中率最高）。'''
-    con = store.connect()
+    con = store.connect(account_qq)
     try:
         rows = con.execute(
             "SELECT kind, peer_id, peer_qq, MAX(ts) AS mt FROM messages "
@@ -156,7 +156,7 @@ def _loads(raw) -> dict:
 
 def _find_store_row(account_qq, peer: dict, ts: int, tol: int = 4) -> dict | None:
     '''按 (会话, 时间) 找库里的 voice 行；找不到返回 None。'''
-    con = store.connect()
+    con = store.connect(account_qq)
     try:
         if peer["kind"] == "group":
             rows = con.execute(
@@ -185,7 +185,7 @@ def _find_store_row(account_qq, peer: dict, ts: int, tol: int = 4) -> dict | Non
     return {"id": int(best["id"]), "ts": int(best["ts"]), "media": _loads(best["media"])}
 
 
-def _apply_official(msg_id: int, media: dict, text: str, elapsed: float = 0.0) -> bool:
+def _apply_official(account_qq, msg_id: int, media: dict, text: str, elapsed: float = 0.0) -> bool:
     '''官方结果优先；覆盖前把 whisper 原文快照进 voice_text_local。'''
     m = dict(media or {})
     if str(m.get("voice_engine") or "") == "qq-official":
@@ -203,7 +203,7 @@ def _apply_official(msg_id: int, media: dict, text: str, elapsed: float = 0.0) -
     m["voice_official"] = True
     m["voice_official_at"] = int(time.time())
     m["voice_official_elapsed"] = round(float(elapsed or 0.0), 2)
-    con = store.connect()
+    con = store.connect(account_qq)
     try:
         cur = con.execute("UPDATE messages SET media=? WHERE id=?",
                           (json.dumps(m, ensure_ascii=False), int(msg_id)))
@@ -378,7 +378,7 @@ def transcribe_recent(account_qq, peer_limit=PEER_LIMIT, per_peer=PER_PEER,
                 else:
                     local_text = cur_media.get("voice_text")
                     engine_before = cur_media.get("voice_engine")
-                    wrote = _apply_official(row["id"], cur_media, text, call_elapsed)
+                    wrote = _apply_official(account_qq, row["id"], cur_media, text, call_elapsed)
                     if wrote:
                         report["filled"] += 1
                         status = "filled"
@@ -424,7 +424,7 @@ def _emit(progress, idx, total, report, rec, status) -> None:
 # ── 统计（official / local / both） ────────────────────────────────────────
 def stats(account_qq) -> dict:
     qq = int(account_qq)
-    con = store.connect()
+    con = store.connect(qq)
     try:
         row = con.execute(
             "SELECT COUNT(*) AS total, "

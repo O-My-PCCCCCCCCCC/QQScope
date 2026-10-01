@@ -63,7 +63,9 @@ def _scalar(con, sql: str, args=()) -> int:
 
 def duplicate_stats(account_qq=None) -> dict:
     """数据健康度：c2c 会话数 vs 唯一 QQ 数，uid 形态残留量。"""
-    con = store.connect()
+    if not account_qq:
+        raise ValueError("duplicate_stats 必须指定 account_qq（task-11 每账号独立库）")
+    con = store.connect(account_qq)
     try:
         args = [int(account_qq)] if account_qq else []
         w = " AND account_qq=?" if account_qq else ""
@@ -97,7 +99,9 @@ def migrate_c2c_peer_id(account_qq=None, backup: bool = True) -> dict:
 
     返回统计：合并会话数 / 删除重复消息数 / 前后会话数 / 备份路径。
     """
-    con = store.connect()
+    if not account_qq:
+        raise ValueError("migrate_c2c_peer_id 必须指定 account_qq（task-11 每账号独立库）")
+    con = store.connect(account_qq)
     try:
         con.executescript(store.SCHEMA)
         acc = int(account_qq) if account_qq else None

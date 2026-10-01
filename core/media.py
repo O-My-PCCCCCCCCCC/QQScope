@@ -317,7 +317,7 @@ def media_stats(account_qq) -> dict:
     """按 kind 统计 store 里 media 的本地命中情况。"""
     qq = int(account_qq)
     out: dict[str, dict] = {}
-    con = store.connect()
+    con = store.connect(qq)
     try:
         try:
             rows = con.execute(
@@ -367,7 +367,7 @@ def pending(account_qq, kind: str | None = None, limit: int = 200) -> list[dict]
         args.append(str(kind))
     sql += " ORDER BY ts DESC LIMIT ?"
     args.append(limit)
-    con = store.connect()
+    con = store.connect(qq)
     try:
         rows = con.execute(sql, args).fetchall()
     finally:

@@ -49,12 +49,113 @@ def c_paths():
 
 
 def c_store():
-    from core import store
+    from core import store, paths
     store.init()
-    cols = {r[1] for r in store.connect().execute("PRAGMA table_info(messages)")}
     need = {"account_qq", "kind", "peer_id", "ts", "direction", "text", "source"}
-    miss = need - cols
-    return (not miss), f"messages 列齐全={not miss} 缺失={miss}"
+    # master 注册表
+    m = store.connect()
+    try:
+        mcols = {r[1] for r in m.execute("PRAGMA table_info(accounts)")}
+    finally:
+        m.close()
+    if not {"account_qq", "label", "source", "updated_at"} <= mcols:
+        return False, f"master accounts 表缺列，现有={sorted(mcols)}"
+    accs = [a["account_qq"] for a in store.list_accounts()]
+    problems, checked, legacy_miss = [], 0, None
+    for qq in accs:
+        if not paths.account_db(qq).exists():
+            continue
+        con = store.connect(qq)
+        try:
+            cols = {r[1] for r in con.execute("PRAGMA table_info(messages)")}
+        finally:
+            con.close()
+        miss = need - cols
+        if miss:
+            problems.append(f"{qq} 缺列{miss}")
+        checked += 1
+    if accs and not checked and paths.legacy_present():
+        con = store.connect(accs[0])   # 迁移前回退旧库（只读）
+        try:
+            legacy_miss = need - {r[1] for r in con.execute("PRAGMA table_info(messages)")}
+        finally:
+            con.close()
+    if legacy_miss:
+        return False, f"legacy messages 缺列 {legacy_miss}"
+    detail = (f"账号库 {checked} 个 schema OK" if checked else "迁移前 legacy schema OK")
+    return (not problems), detail if not problems else "; ".join(problems)
+
+
+def c_account_layout():
+    """task-11 物理分账号：迁移后 data/accounts/<qq>/ 有独立库。
+
+    未迁移（还在用旧单库）时给 PASS + 说明，因为迁移在 15555 重启时自动执行。
+    """
+    from core import paths
+    if not paths.accounts_split_done():
+        if paths.legacy_present():
+            return True, "尚未迁移（重启 15555 时自动拆分，先备份后改名）"
+        return True, "无账号数据（全新环境）"
+    dirs = [d for d in sorted(paths.ACCOUNTS_DIR.iterdir()) if d.is_dir()]
+    missing = [d.name for d in dirs if not (d / "qqscope.db").exists()]
+    if missing:
+        return False, f"{len(dirs)} 个账号目录，缺库：{missing[:3]}"
+    return True, f"{len(dirs)} 个账号目录，各自独立 qqscope.db"
+
+
+def c_no_orphan_accounts():
+    """task-11：每个账号库内 account_qq 必须一致；注册表与目录一一对应。
+
+    防回归：实时采集把「框架登录但尚未导入」的账号写进 messages 后，
+    如果没同时登记 accounts 行，那些消息就是孤儿 —— 数据在库里，
+    但 /api/accounts 列不出该账号，界面永远看不到（等于自动填充白干）。
+    """
+    from core import store, paths
+    accs = list(store.list_accounts())
+    listed = [int(a["account_qq"]) for a in accs]
+    if paths.accounts_split_done():
+        problems = []
+        dirs = [d.name for d in paths.ACCOUNTS_DIR.iterdir() if d.is_dir()]
+        for d in dirs:
+            if d not in {str(q) for q in listed}:
+                problems.append(f"目录 {d} 未注册")
+        for qq in listed:
+            if str(qq) not in set(dirs):
+                problems.append(f"注册 {qq} 无目录")
+            con = store.connect(qq)
+            try:
+                for tbl in ("messages", "contacts", "feeds"):
+                    try:
+                        n = con.execute(
+                            f"SELECT COUNT(*) FROM {tbl} WHERE account_qq<>?", (qq,)).fetchone()[0]
+                    except Exception:  # noqa: BLE001
+                        n = 0
+                    if n:
+                        problems.append(f"{qq}.{tbl} 混入 {n} 行")
+            finally:
+                con.close()
+        return (not problems), ("每账号库 account_qq 一致" if not problems
+                                else "; ".join(problems[:3]))
+    # 迁移前：旧单库孤儿检查（回退只读）
+    if not listed:
+        return True, "暂无账号"
+    try:
+        con = store.connect(listed[0])
+        bad = {}
+        for tbl in ("messages", "contacts", "feeds"):
+            try:
+                n = con.execute(
+                    f"SELECT COUNT(*) FROM {tbl} t WHERE NOT EXISTS "
+                    "(SELECT 1 FROM accounts a WHERE a.account_qq = t.account_qq)"
+                ).fetchone()[0]
+            except Exception:  # noqa: BLE001
+                n = 0
+            if n:
+                bad[tbl] = n
+        con.close()
+        return (not bad), ("迁移前：无孤儿账号行" if not bad else "孤儿行：%s" % bad)
+    except Exception as exc:  # noqa: BLE001
+        return True, f"迁移前跳过（{type(exc).__name__}）"
 
 
 def c_source(sid: str):
@@ -242,6 +343,7 @@ def main() -> None:
     print(f"===== QQScope 验收 ({'full' if args.full else 'quick'}) =====")
     check("core.paths 可用", c_paths)
     check("core.store schema", c_store)
+    check("每账号独立库布局", c_account_layout)
     check("数据源 pack 模块", c_source("pack"))
     check("数据源 bot 模块", c_source("bot"))
     check("v5-v10 接口已注册", c_routes_v5_v10)

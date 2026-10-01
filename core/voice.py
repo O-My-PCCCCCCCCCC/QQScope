@@ -129,7 +129,7 @@ def pending_jobs(account_qq, limit: int | None = None, retry_failed: bool = Fals
         where += " AND id IN (%s)" % ",".join("?" * len(ids))
         args += ids
     sql = f"SELECT id, ts, media FROM messages WHERE {where} ORDER BY ts {'DESC' if newest else 'ASC'}"
-    con = store.connect()
+    con = store.connect(qq)
     try:
         rows = con.execute(sql, args).fetchall()
     finally:
@@ -168,7 +168,7 @@ def _shard(jobs: list[dict], workers: int) -> list[list[dict]]:
 def apply_result(account_qq, msg_id: int, result: dict) -> bool:
     """把单条 ASR 结果合并进 messages.media（JSON 字符串列）。"""
     mid = int(msg_id)
-    con = store.connect()
+    con = store.connect(account_qq)
     try:
         row = con.execute("SELECT media FROM messages WHERE id=? AND account_qq=?",
                           (mid, int(account_qq))).fetchone()
@@ -437,7 +437,7 @@ def _run_locked(account_qq, limit, workers, model_size, threads, progress,
 def stats(account_qq) -> dict:
     """语音转写统计（真实数字，失败单独计）。"""
     qq = int(account_qq)
-    con = store.connect()
+    con = store.connect(qq)
     try:
         row = con.execute(
             "SELECT "

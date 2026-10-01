@@ -238,7 +238,7 @@ def _session_stats(account: int, kind: str, peer_id: str) -> dict:
     '''直接按 messages 重算 msg_count / self_count / first_ts / last_ts。'''
     con = None
     try:
-        con = store.connect()
+        con = store.connect(account)
         row = con.execute(
             "SELECT COUNT(*) n, "
             "COALESCE(SUM(CASE WHEN direction=1 THEN 1 ELSE 0 END),0) s, "
@@ -264,7 +264,7 @@ def _hourly(account: int, kind: str, peer_id: str) -> list[int]:
     '''该会话 24 小时消息分布（本地时区，与 store.hour_hist 一致）。'''
     con = None
     try:
-        con = store.connect()
+        con = store.connect(account)
         rows = con.execute(
             "SELECT CAST(strftime('%H',ts,'unixepoch','localtime') AS INT) h, "
             "COUNT(*) n FROM messages WHERE account_qq=? AND kind=? AND peer_id=? "
@@ -307,7 +307,7 @@ def _top_words(account: int, kind: str, peer_id: str, limit: int = 12) -> list[d
     '''该会话高频词：中文 2-gram + 英文/数字词，过滤常见虚词，取 Top N。'''
     con = None
     try:
-        con = store.connect()
+        con = store.connect(account)
         rows = con.execute(
             "SELECT text FROM messages WHERE account_qq=? AND kind=? AND peer_id=? "
             "AND text IS NOT NULL AND text<>'' ORDER BY ts DESC LIMIT ?",

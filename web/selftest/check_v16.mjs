@@ -33,7 +33,7 @@ ok("缺席即拒绝断言", /缺席/.test(isoSrc) && /st == 400|st == 422/.test(
 ok("写路径：DELETE / PATCH / export 全覆盖", /DELETE/.test(isoSrc) && /PATCH/.test(isoSrc) && /run_export/.test(isoSrc));
 
 section("v16 本轮新发现并修复的泄漏（源码断言）");
-ok("delete_account 一并删 feeds", /DELETE FROM feeds WHERE account_qq=\?/.test(storeSrc));
+ok("delete_account 删账号目录+注册表行（task-11）", /def delete_account\(/.test(storeSrc) && /shutil\.rmtree\(d/.test(storeSrc) && /DELETE FROM accounts WHERE account_qq=\?/.test(storeSrc));
 const iLogin = sendSrc.indexOf("login = _login_qq()");
 const iDry = sendSrc.indexOf("演练模式");
 ok("send 身份校验在 dry_run 之前（dry_run 不再绕过）", iLogin >= 0 && iDry > iLogin, `iLogin=${iLogin} iDry=${iDry}`);
