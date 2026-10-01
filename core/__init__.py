@@ -1,0 +1,1 @@
+﻿"""QQScope core."""

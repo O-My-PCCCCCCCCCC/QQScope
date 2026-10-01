@@ -9,6 +9,13 @@ logs/
 __pycache__/
 *.pyc
 
+# 构建产物（内含聊天数据，禁止提交）
+app/dist/
+android/.gradle/
+android/build/
+android/app/build/
+android/app/src/main/assets/
+
 # 依赖
 node_modules/
 venv/
@@ -17,3 +24,56 @@ venv/
 # 系统文件
 Thumbs.db
 Desktop.ini
+
+# 研究用的第三方源码副本（体积大，不入库）
+research/lagrange-core-src/
+
+# .NET 构建产物
+android-native/**/bin/
+android-native/**/obj/
+
+# 大体积下载缓存
+tools/*.zip
+
+# 第三方工具/下载缓存
+tools/napcat-win/
+tools/*.apk
+
+# 前端自测产物（截图/DOM dump/浏览器 profile，可再生）
+web/selftest/out/
+
+# 解密工具链的库文件与中间产物（体积大，可再生）
+tools/nt_msg_db_util/*.db
+tools/nt_msg_db_util/*.db-*
+
+# 研究用的第三方压缩包
+research/*.zip
+
+# 自带的机器人框架（325MB 第三方二进制，可再生）
+tools/napcat/
+
+
+# v10：3D 模型 + three.js 本地素材（约 44MB，从 kei-showcase 复制，不入库；用 scripts/fetch_assets.ps1 恢复）
+web/assets/
+
+# 便携打包产物（体积大，可再生）
+dist-package/
+
+# ── 本轮新增（2026-10-01）──────────────────────────────────────────
+# 本地截图证据：含真实聊天内容/好友昵称，**禁止入库与推送**
+docs/截图/
+网页截图-*.png
+扫码登录.png
+
+# 第三方二进制：由「①启动机器人框架.bat / 启动框架.bat」自动从本机 QQ 复制，不入库
+crypto.dll
+ssl.dll
+# ASR 批量转写的中间产物（可再生产；out_*.jsonl / jobs_*.json 会持续变大）
+tools/asr/_run/out_*.jsonl
+tools/asr/_run/jobs_*.json
+tools/asr/_run/*.log
+tools/asr/_run/asr.lock
+# 仓库体积：超 100MB 的构建产物 / 第三方二进制（保留在本地，不入库）
+dist/*.apk
+tools/termux_x86_64.apk
+tools/napcat-win/

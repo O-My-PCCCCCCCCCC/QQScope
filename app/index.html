@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>QQScope · 精神状态监测</title>
+<style>
+/* ===== Dashboard Layout 全局样式（设计包） ===== */
+:root {
+  --primary: #111827; --secondary: #f9fafb; --accent: #6366f1;
+  --up: #10b981; --down: #ef4444; --neutral: #f59e0b;
+  --line: #e5e7eb; --card-line: #f3f4f6; --text-sub: #6b7280;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { background: var(--secondary); color: var(--primary);
+  font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif; }
+
+/* 头像（CDN 图 + 底色兜底） */
+.av { position: relative; border-radius: 50%; overflow: hidden; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800;
+  background: var(--accent); }
+.av img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.av .init { position: relative; z-index: 1; }
+.av.s52 { width: 52px; height: 52px; font-size: 20px; }
+.av.s38 { width: 38px; height: 38px; font-size: 15px; }
+.av.s30 { width: 30px; height: 30px; font-size: 13px; }
+.av.s72 { width: 72px; height: 72px; font-size: 28px; }
+
+/* ===== 主页（账号选择/登录） ===== */
+.home { min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+  padding: 4rem 1.5rem 2rem; background: linear-gradient(180deg, #111827 0%, #1f2937 45%, #f9fafb 45.5%); }
+.home-brand { text-align: center; color: #fff; margin-bottom: 2.5rem; }
+.home-brand h1 { font-size: 34px; font-weight: 800; letter-spacing: 1px; }
+.home-brand h1 span { color: var(--accent); }
+.home-brand p { font-size: 13px; color: #9ca3af; margin-top: 8px; }
+.home-cards { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 1rem; }
+.home-card { background: #fff; border-radius: 14px; border: 1px solid var(--card-line);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.06); padding: 1.1rem 1.3rem;
+  display: flex; align-items: center; gap: 14px; cursor: pointer; transition: all 0.15s ease-out; }
+.home-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(17,24,39,0.12); border-color: #e0e7ff; }
+.hc-info { flex: 1; min-width: 0; }
+.hc-info .name { font-size: 17px; font-weight: 700; }
+.hc-info .qq { font-size: 12px; color: var(--text-sub); margin-top: 3px; }
+.hc-info .stat { font-size: 12px; color: var(--text-sub); margin-top: 4px; }
+.hc-enter { color: var(--accent); font-size: 13px; font-weight: 700; flex-shrink: 0; }
+.home-foot { margin-top: 2.5rem; font-size: 12px; color: var(--text-sub); text-align: center; line-height: 1.7; }
+
+/* ===== 仪表盘 ===== */
+.dashboard { display: flex; min-height: 100vh; }
+.dashboard-sidebar { width: 256px; background: var(--primary); color: #fff; flex-shrink: 0;
+  display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; }
+.sb-brand { padding: 1.5rem 1.5rem 0.8rem; font-size: 20px; font-weight: 800; }
+.sb-brand span { color: var(--accent); }
+.sb-user { padding: 0 1.2rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; gap: 10px; }
+.sb-user .u-name { font-size: 14px; font-weight: 600; }
+.sb-user .u-qq { font-size: 11px; color: #9ca3af; }
+.sb-nav { flex: 1; padding: 0.75rem; display: flex; flex-direction: column; gap: 2px; }
+.sb-nav a { display: flex; align-items: center; gap: 10px; padding: 0.65rem 0.75rem; color: #9ca3af;
+  text-decoration: none; font-size: 14px; font-weight: 500; border-radius: 8px; transition: all 0.15s ease-out; cursor: pointer; }
+.sb-nav a:hover { background: rgba(255,255,255,0.05); color: #fff; }
+.sb-nav a.on { background: rgba(255,255,255,0.1); color: #fff; font-weight: 600; }
+.sb-foot { padding: 1rem 1.5rem; font-size: 11px; color: #6b7280; border-top: 1px solid rgba(255,255,255,0.08); }
+.sb-foot .sw { cursor: pointer; color: var(--accent); font-weight: 700; margin-top: 4px; display: inline-block; }
+.dashboard-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.dashboard-toolbar { background: #fff; border-bottom: 1px solid var(--line); padding: 0.75rem 1.5rem;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: 0; z-index: 10; }
+.tb-title { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.tb-title .viewname { font-size: 13px; color: var(--text-sub); font-weight: 500; }
+.tb-right { display: flex; align-items: center; gap: 12px; }
+.tb-user { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+.btn { border: none; background: var(--primary); color: #fff; border-radius: 8px; padding: 7px 14px;
+  font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s ease-out; }
+.btn:hover { background: #1f2937; }
+.btn:active { transform: scale(0.97); }
+.btn.ghost { background: #fff; color: var(--primary); border: 1px solid var(--line); }
+.btn.ghost:hover { background: var(--secondary); }
+.btn.accent { background: var(--accent); }
+.btn.accent:hover { background: #4f46e5; }
+.btn.mini { padding: 4px 10px; font-size: 12px; }
+.mnav { display: none; background: #fff; border-bottom: 1px solid var(--line); padding: 8px 12px;
+  gap: 8px; overflow-x: auto; position: sticky; top: 57px; z-index: 9; }
+.mnav a { flex-shrink: 0; font-size: 13px; font-weight: 500; color: var(--text-sub); text-decoration: none;
+  padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+.mnav a.on { background: var(--primary); color: #fff; border-color: var(--primary); }
+.dashboard-content { flex: 1; padding: 1.5rem; max-width: 1280px; width: 100%; margin: 0 auto; }
+
+/* KPI */
+.dashboard-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+.kpi { background: #fff; border-radius: 12px; padding: 1rem 1.1rem; border: 1px solid var(--card-line);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03); transition: all 0.15s ease-out; }
+.kpi:hover { box-shadow: 0 4px 12px rgba(17,24,39,0.08); transform: translateY(-2px); border-color: #e0e7ff; }
+.kpi .k { font-size: 12px; color: var(--text-sub); font-weight: 500; display: flex; justify-content: space-between; align-items: center; }
+.kpi .tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+.kpi .tag.up { color: var(--up); background: rgba(16,185,129,0.1); }
+.kpi .tag.down { color: var(--down); background: rgba(239,68,68,0.1); }
+.kpi .tag.neutral { color: var(--neutral); background: rgba(245,158,11,0.12); }
+.kpi .v { font-size: 26px; font-weight: 700; margin-top: 6px; line-height: 1.1; }
+.kpi .v small { font-size: 14px; font-weight: 600; color: var(--text-sub); }
+.kpi .sub { font-size: 12px; color: var(--text-sub); margin-top: 4px; }
+.kpi .sub.down { color: var(--down); }
+
+/* 面板/图表 */
+.panel { background: #fff; border-radius: 12px; border: 1px solid var(--card-line);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03); padding: 1.1rem 1.2rem; margin-bottom: 1.5rem; }
+.panel h3 { font-size: 15px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.panel h3 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: inline-block; }
+.dashboard-chart-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; }
+.dashboard-chart-grid .panel { margin-bottom: 1.5rem; }
+.chart-box canvas { width: 100%; display: block; }
+.table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-sub); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.table td { padding: 9px 10px; border-bottom: 1px solid var(--card-line); }
+.table tr:hover td { background: var(--secondary); }
+.senti-up { color: var(--up); font-weight: 600; }
+.senti-down { color: var(--down); font-weight: 600; }
+.senti-flat { color: var(--neutral); font-weight: 600; }
+
+/* 社交对象 */
+.peer-row { display: flex; align-items: center; gap: 10px; padding: 9px 6px;
+  border-bottom: 1px solid var(--card-line); font-size: 13px; }
+.peer-row:last-child { border-bottom: none; }
+.peer-row .p-main { flex: 1; min-width: 0; }
+.peer-row .p-name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.peer-row .p-kind { font-size: 10px; font-weight: 700; color: var(--accent); background: rgba(99,102,241,0.1);
+  border-radius: 999px; padding: 1px 7px; }
+.peer-row .p-qq { font-size: 11px; color: var(--text-sub); margin-top: 2px; }
+.peer-row .p-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.s.up { color: var(--up); font-weight: 600; }
+.s.down { color: var(--down); font-weight: 600; }
+.s.flat { color: var(--neutral); font-weight: 600; }
+
+/* 词云 */
+.chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500;
+  border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; margin: 0 6px 8px 0; background: var(--secondary); }
+.chip.up { color: var(--up); background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.2); }
+.chip.down { color: var(--down); background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.2); }
+.chip b { font-size: 11px; }
+
+/* 个人信息 */
+.profile-head { display: flex; align-items: center; gap: 16px; margin-bottom: 1.5rem; }
+.profile-meta .nm { font-size: 20px; font-weight: 700; }
+.profile-meta .sg { font-size: 13px; color: var(--text-sub); margin-top: 2px; }
+.profile-meta .qq { font-size: 13px; color: var(--text-sub); margin-top: 2px; }
+.form-row { margin-bottom: 1.1rem; }
+.form-row label { display: block; font-size: 12px; font-weight: 600; color: var(--text-sub); margin-bottom: 6px; }
+.form-row input { width: 100%; max-width: 420px; border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px 12px; font-size: 14px; background: var(--secondary); outline: none; transition: all 0.15s; }
+.form-row input:focus { border-color: var(--accent); background: #fff; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
+.color-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.color-swatch { width: 34px; height: 34px; border-radius: 50%; cursor: pointer; border: 3px solid transparent; transition: all 0.15s; }
+.color-swatch.on { border-color: var(--primary); transform: scale(1.12); }
+.profile-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1.5rem; }
+.profile-stats .kpi { margin-bottom: 0; }
+.save-tip { font-size: 12px; color: var(--up); margin-left: 10px; opacity: 0; transition: opacity 0.3s; }
+.save-tip.show { opacity: 1; }
+.hint { font-size: 12px; color: var(--text-sub); margin-top: 10px; line-height: 1.7; }
+.hint code { background: var(--secondary); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; font-size: 11px; }
+
+/* 关怀/页脚 */
+.care-panel { background: #fff7ed; border: 1px solid #fdba74; border-radius: 12px;
+  padding: 1rem 1.2rem; margin-bottom: 1.5rem; }
+.care-panel h4 { color: #c2410c; font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+.care-panel p { font-size: 13px; color: #9a3412; line-height: 1.6; }
+.footer { border-top: 1px solid var(--line); background: #fff; padding: 1rem 1.5rem;
+  font-size: 12px; color: var(--text-sub); line-height: 1.7; }
+
+/* AI 解读 / 设置 */
+.ai-box { border: 1px solid var(--line); border-radius: 12px; background: var(--secondary);
+  padding: 1rem; font-size: 13px; line-height: 1.8; min-height: 120px; white-space: pre-wrap; }
+.ai-box.loading { color: var(--text-sub); }
+.ai-box.error { color: var(--down); }
+.ai-opts { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.ai-opts .chip { cursor: pointer; user-select: none; }
+.ai-opts .chip.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.settings-sec { margin-bottom: 1.2rem; }
+.settings-sec h4 { font-size: 13px; font-weight: 700; margin-bottom: 8px; color: var(--primary); }
+.settings-sec .row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.settings-sec label { font-size: 12px; color: var(--text-sub); width: 90px; flex-shrink: 0; }
+.settings-sec input, .settings-sec select { flex: 1; min-width: 180px; border: 1px solid var(--line);
+  border-radius: 8px; padding: 9px 12px; font-size: 13px; background: var(--secondary); outline: none; }
+.settings-sec input:focus, .settings-sec select:focus { border-color: var(--accent); background: #fff; }
+.test-result { font-size: 12px; font-weight: 600; }
+.test-result.ok { color: var(--up); }
+.test-result.err { color: var(--down); }
+.sec-note { font-size: 12px; color: var(--text-sub); line-height: 1.7; margin-top: 6px; }
+.inline-edit { display: flex; gap: 6px; align-items: center; }
+.inline-edit input { border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px;
+  font-size: 12px; width: 120px; background: var(--secondary); outline: none; }
+.inline-edit input:focus { border-color: var(--accent); }
+
+@media (max-width: 1024px) {
+  .dashboard-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .dashboard-chart-grid { grid-template-columns: 1fr; }
+  .profile-stats { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 768px) {
+  .dashboard-sidebar { display: none; }
+  .mnav { display: flex; }
+  .dashboard-kpi-grid { grid-template-columns: 1fr 1fr; }
+  .dashboard-content { padding: 1rem; }
+  .dashboard-toolbar { padding: 0.65rem 1rem; }
+  .home { padding-top: 3rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- ========== 主页：账号选择 ========== -->
+<div class="home" id="homeView">
+  <div class="home-brand">
+    <h1>QQ<span>SCOPE</span></h1>
+    <p>精神状态监测 · 选择账号登录</p>
+  </div>
+  <div class="home-cards" id="homeCards"></div>
+  <div class="home-foot">数据 100% 本地处理，不出本机 · 辅助自我观察，非医疗诊断</div>
+</div>
+
+<!-- ========== 仪表盘 ========== -->
+<div class="dashboard" id="dashView" style="display:none">
+  <aside class="dashboard-sidebar">
+    <div class="sb-brand">QQ<span>SCOPE</span></div>
+    <div class="sb-user">
+      <div class="av s38" id="sbAvatar">你</div>
+      <div><div class="u-name" id="sbName">—</div><div class="u-qq" id="sbQq">—</div></div>
+    </div>
+    <nav class="sb-nav">
+      <a data-view="overview" class="on"><span>▦</span>概览</a>
+      <a data-view="daily"><span>📋</span>每日明细</a>
+      <a data-view="social"><span>👥</span>社交对象</a>
+      <a data-view="words"><span>💬</span>高频情绪词</a>
+      <a data-view="ai"><span>🤖</span>AI 解读</a>
+      <a data-view="profile"><span>👤</span>个人信息</a>
+      <a data-view="settings"><span>⚙</span>设置</a>
+    </nav>
+    <div class="sb-foot">数据 100% 本地 · 非医疗诊断
+      <br><span class="sw" id="sbSwitch">⇄ 切换账号</span></div>
+  </aside>
+
+  <div class="dashboard-main">
+    <header class="dashboard-toolbar">
+      <div class="tb-title">精神状态监测 <span class="viewname" id="tbViewName"></span></div>
+      <div class="tb-right">
+        <div class="tb-user"><div class="av s30" id="tbAvatar">你</div><span id="tbName">—</span></div>
+        <button class="btn ghost" id="tbSwitch">切换账号</button>
+      </div>
+    </header>
+
+    <nav class="mnav">
+      <a data-view="overview" class="on">概览</a>
+      <a data-view="daily">每日明细</a>
+      <a data-view="social">社交对象</a>
+      <a data-view="words">高频词</a>
+      <a data-view="ai">AI 解读</a>
+      <a data-view="profile">我的</a>
+      <a data-view="settings">设置</a>
+    </nav>
+
+    <main class="dashboard-content">
+      <div class="view" id="view-overview">
+        <div class="dashboard-kpi-grid" id="kpiGrid"></div>
+        <div class="dashboard-chart-grid">
+          <div class="panel"><h3><span class="dot"></span>情绪曲线（每日平均情绪分）</h3>
+            <div class="chart-box"><canvas id="curveCanvas" height="220"></canvas></div></div>
+          <div class="panel"><h3><span class="dot" style="background:var(--neutral)"></span>活跃时段分布</h3>
+            <div class="chart-box"><canvas id="hourCanvas" height="220"></canvas></div></div>
+        </div>
+      </div>
+
+      <div class="view" id="view-daily" style="display:none">
+        <div class="panel"><h3><span class="dot" style="background:var(--up)"></span>每日明细</h3>
+          <table class="table" id="dailyTable"><thead><tr>
+            <th>日期</th><th>消息</th><th>情绪分</th><th>积极/消极</th><th>深夜</th><th>均长</th>
+          </tr></thead><tbody></tbody></table></div>
+      </div>
+
+      <div class="view" id="view-social" style="display:none">
+        <div class="panel"><h3><span class="dot" style="background:var(--accent)"></span>社交对象（你发的消息）</h3>
+          <div id="peerList"></div>
+          <div class="hint">✎ 可给每个人/群自定义名称（存本机）。头像来自 QQ 公开头像服务，昵称自动读取待接入（API 已预留）。</div></div>
+      </div>
+
+      <div class="view" id="view-words" style="display:none">
+        <div class="panel"><h3><span class="dot" style="background:var(--down)"></span>高频情绪词</h3>
+          <div id="wordCloud"></div></div>
+      </div>
+
+      <div class="view" id="view-profile" style="display:none">
+        <div class="panel">
+          <h3><span class="dot"></span>个人信息</h3>
+          <div class="profile-head">
+            <div class="av s72" id="pfAvatar">你</div>
+            <div class="profile-meta">
+              <div class="nm" id="pfName">—</div>
+              <div class="sg" id="pfSign">—</div>
+              <div class="qq" id="pfQq">—</div>
+            </div>
+          </div>
+          <div class="form-row"><label>昵称（自动读取不可用时手动设置）</label>
+            <input type="text" id="inpNick" maxlength="16" placeholder="给自己起个名字"></div>
+          <div class="form-row"><label>签名</label>
+            <input type="text" id="inpSign" maxlength="40" placeholder="一句话说说现在的你"></div>
+          <div class="form-row"><label>头像底色（QQ 头像加载失败时使用）</label>
+            <div class="color-row" id="colorRow"></div></div>
+          <button class="btn accent" id="btnSave">保存个人信息</button>
+          <span class="save-tip" id="saveTip">✓ 已保存到本机</span>
+          <div class="profile-stats" id="pfStats"></div>
+        </div>
+      </div>
+
+      <div class="view" id="view-ai" style="display:none">
+        <div class="panel">
+          <h3><span class="dot" style="background:var(--accent)"></span>AI 解读我的精神报告</h3>
+          <div class="ai-opts" id="aiOpts">
+            <span class="chip on" data-scope="overview">总体解读</span>
+            <span class="chip" data-scope="daily">逐日分析</span>
+            <span class="chip" data-scope="social">社交关系</span>
+            <span class="chip" data-scope="advice">建议</span>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+            <button class="btn accent" id="btnAi">生成解读</button>
+            <span class="sec-note" style="margin-top:8px">解读会把你选定范围的数据摘要发送给设置的 AI 服务商</span>
+          </div>
+          <div class="ai-box" id="aiBox">配置好 API Key 后，点「生成解读」。</div>
+        </div>
+      </div>
+
+      <div class="view" id="view-settings" style="display:none">
+        <div class="panel">
+          <h3><span class="dot"></span>设置</h3>
+
+          <div class="settings-sec">
+            <h4>🤖 AI 分析配置</h4>
+            <div class="row"><label>服务商</label>
+              <select id="setProvider">
+                <option value="deepseek">DeepSeek</option>
+                <option value="openai">OpenAI 兼容</option>
+              </select></div>
+            <div class="row"><label>Base URL</label><input id="setBase" placeholder="https://api.deepseek.com/v1"></div>
+            <div class="row"><label>API Key</label><input id="setKey" type="password" placeholder="sk-..."></div>
+            <div class="row"><label>模型</label><input id="setModel" placeholder="deepseek-chat"></div>
+            <div class="row">
+              <button class="btn accent" id="btnSaveSettings">保存设置</button>
+              <button class="btn ghost" id="btnTestApi">测试连接</button>
+              <span class="test-result" id="testResult"></span>
+            </div>
+          </div>
+
+          <div class="settings-sec">
+            <h4>🔗 数据源</h4>
+            <div class="row"><label>数据来源</label>
+              <select id="setSource">
+                <option value="builtin">内置数据（导入时打包）</option>
+                <option value="backend">PC 后端（局域网）</option>
+                <option value="onebot">手机协议端 OneBot（爬取/实时）</option>
+              </select></div>
+            <div class="row" id="rowObHttp"><label>OneBot HTTP</label><input id="setObHttp" placeholder="http://127.0.0.1:3000"></div>
+            <div class="row" id="rowObToken"><label>访问令牌</label><input id="setObToken" type="password" placeholder="可选，NapCat 未开可留空"></div>
+            <div class="row" id="rowObWs"><label>实时接收</label>
+              <select id="setObWs"><option value="1">开启（WebSocket）</option><option value="0">关闭</option></select></div>
+            <div class="sec-note">手机端流程：Termux 装 NapCat → 扫码登录（任意 QQ，动态）→ 本应用连本机 OneBot 拉取历史消息并实时接收。详见项目 docs/手机部署.md。</div>
+          </div>
+
+          <div class="settings-sec">
+            <h4>📊 数据</h4>
+            <div class="sec-note" id="setDataInfo"></div>
+          </div>
+
+          <div class="settings-sec">
+            <h4>🔗 同步与自动读取（规划）</h4>
+            <div class="sec-note">当前版本数据为导入时打包。规划中的 PC 后端会自动读取 QQ 数据（用已保存的密钥自动解密）、自动刷新报告，并通过局域网把数据同步到本应用——接入点为 API 层 <code>data.import</code>。</div>
+          </div>
+
+          <div class="settings-sec">
+            <h4>📌 关于</h4>
+            <div class="sec-note" id="setAbout"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="care-panel" id="careBox" style="display:none">
+        <h4>⚠ 需要关注</h4>
+        <p id="careText"></p>
+      </div>
+    </main>
+
+    <footer class="footer" id="footer"></footer>
+  </div>
+</div>
+
+<script>
+/* ===== 数据（构建时注入） ===== */
+window.QQSCOPE = {
+  accounts: /*__QQSCOPE_ACCOUNTS__*/,
+  profiles: {}
+};
+</script>
+<script>
+/* ===== 分析引擎（构建时注入，来源 app/js/analysis.js） ===== */
+/*__QQSCOPE_ENGINE__*/
+</script>
+<script>
+/* ===== 应用逻辑 ===== */
+(function () {
+  var D = window.QQSCOPE;
+  if (!D.accounts || !D.accounts.length) {
+    document.body.innerHTML = '<div style="padding:3rem;text-align:center;font-family:sans-serif"><h2>无数据</h2><p>请先运行 import_and_pack.py 生成数据包并重新构建应用。</p></div>';
+    return;
+  }
+
+  /* ================= API 接口层（预留扩展） =================
+   * 后续功能（自动昵称、增量数据、局域网同步）通过这里接入，页面代码无需改动：
+   *   api.accounts.list()                      全部账号
+   *   api.accounts.report(qq)                   指定账号的分析报告
+   *   api.contacts.getName(peerKey)             对象名称（自定义优先）
+   *   api.contacts.setName(peerKey, name)       自定义对象名称
+   *   api.contacts.import(map)                  批量导入昵称/资料（未来：profile_info.db 解密 / OneBot get_stranger_info）
+   *   api.data.import(payload)                  导入新数据包（未来：局域网同步）
+   *   api.on(event, cb)                         事件订阅（data-updated / contacts-updated）
+   */
+  var LS_PROF = "qqscope_profiles_v1";
+  var LS_PEERS = "qqscope_peernames_v1";
+  var LS_SET = "qqscope_settings_v1";
+  var profiles = {};
+  var peerNames = {};   // key: "<kind>|<id>" → 自定义名称
+  var settings = { provider: "deepseek", base: "https://api.deepseek.com/v1", key: "", model: "deepseek-chat",
+    source: "builtin", obHttp: "", obToken: "", obWs: "1" };
+  try { profiles = JSON.parse(localStorage.getItem(LS_PROF)) || {}; } catch (e) {}
+  try { peerNames = JSON.parse(localStorage.getItem(LS_PEERS)) || {}; } catch (e) {}
+  try { settings = Object.assign(settings, JSON.parse(localStorage.getItem(LS_SET)) || {}); } catch (e) {}
+  function saveProfiles() { try { localStorage.setItem(LS_PROF, JSON.stringify(profiles)); } catch (e) {} }
+  function savePeerNames() { try { localStorage.setItem(LS_PEERS, JSON.stringify(peerNames)); } catch (e) {} }
+  function saveSettings() { try { localStorage.setItem(LS_SET, JSON.stringify(settings)); } catch (e) {} }
+
+  var COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#111827"];
+  function profileFor(qq) { return profiles[String(qq)] || {}; }
+  function colorOf(qq) { var p = profileFor(qq); return p.color || COLORS[0]; }
+
+  // QQ 公开头像服务：个人 qlogo / 群 p.qlogo
+  function avatarUrl(uin) { return "https://q1.qlogo.cn/g?b=qq&nk=" + uin + "&s=100"; }
+  function groupAvatarUrl(gid) { return "https://p.qlogo.cn/gh/" + gid + "/" + gid + "/100"; }
+
+  // 头像渲染：CDN 图 + 底色/首字母兜底
+  function avatarHTML(id, sizeCls, color) {
+    var uin = String(id);
+    var isGroup = uin.length >= 10 && /^\d+$/.test(uin) && String(current && current.meta && current.meta.qq) !== uin;
+    var src = isGroup ? groupAvatarUrl(uin) : avatarUrl(uin);
+    if (!/^\d+$/.test(uin)) src = "";
+    var col = color || COLORS[0];
+    var init = uin ? uin[0] : "?";
+    return '<div class="av ' + sizeCls + '" style="background:' + col + '">' +
+      (src ? '<img src="' + src + '" onerror="this.style.display=\'none\'" alt="">' : '') +
+      '<span class="init">' + init + '</span></div>';
+  }
+
+  var $ = function (id) { return document.getElementById(id); };
+  function pad2(n) { return n < 10 ? "0" + n : "" + n; }
+  function fmtTs(t) { if (!t) return "?"; var d = new Date(t * 1000); return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
+  function esc(s) { return String(s).replace(/[<>&"]/g, function (c) { return { "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]; }); }
+
+  var current = null;   // 当前账号对象
+  var R = null;         // 当前报告
+
+  function nickOf() { var p = profileFor(current.qq); return p.nick || ("账号 " + current.qq); }
+  function signOf() { var p = profileFor(current.qq); return p.sign || "这个人很神秘，什么都没写"; }
+  function peerNameOf(kind, id) {
+    var k = kind + "|" + id;
+    if (peerNames[k]) return peerNames[k];
+    return id;
+  }
+
+  /* ================= 主页 ================= */
+  function renderHome() {
+    $("homeCards").innerHTML = D.accounts.map(function (a) {
+      var p = profileFor(a.qq);
+      var nick = p.nick || ("账号 " + a.qq);
+      var m = a.meta;
+      var stat = "共 " + m.total_messages + " 条 · 你发 " + m.self_messages + " 条 · " +
+        fmtTs(m.time_start) + " ~ " + fmtTs(m.time_end);
+      return '<div class="home-card" data-qq="' + a.qq + '">' +
+        avatarHTML(a.qq, "s52", colorOf(a.qq)) +
+        '<div class="hc-info"><div class="name">' + esc(nick) + '</div>' +
+        '<div class="qq">QQ ' + a.qq + '</div><div class="stat">' + stat + '</div></div>' +
+        '<div class="hc-enter">进入 →</div></div>';
+    }).join("");
+    document.querySelectorAll(".home-card").forEach(function (el) {
+      el.addEventListener("click", function () { login(parseInt(el.getAttribute("data-qq"), 10)); });
+    });
+  }
+
+  /* ================= 登录 ================= */
+  function login(qq) {
+    current = D.accounts.filter(function (a) { return a.qq === qq; })[0];
+    if (!current) return;
+    R = window.QQScopeEngine.computeReport(current.messages, current.meta);
+    $("homeView").style.display = "none";
+    $("dashView").style.display = "";
+    renderIdentity();
+    renderOverview();
+    renderDaily();
+    renderSocial();
+    renderWords();
+    renderProfile();
+    showView("overview");
+    window.scrollTo(0, 0);
+  }
+
+  function renderIdentity() {
+    var nick = nickOf();
+    var col = colorOf(current.qq);
+    ["sbAvatar", "tbAvatar"].forEach(function (id) {
+      $(id).outerHTML = avatarHTML(current.qq, id === "sbAvatar" ? "s38" : "s30", col);
+    });
+    $("sbName").textContent = nick;
+    $("tbName").textContent = nick;
+    $("sbQq").textContent = "QQ " + current.qq;
+  }
+
+  /* ================= 概览 ================= */
+  function renderOverview() {
+    var o = R.overview, s = R.sentiment;
+    var nightWarn = o.night_ratio >= 30;
+    var moodCls = s.avg_senti >= 0.05 ? "up" : (s.avg_senti <= -0.05 ? "down" : "neutral");
+    function tag(cond, up) { return cond ? (up ? "up" : "down") : "neutral"; }
+    var kpis = [
+      { k: "自发消息", v: o.self_messages, small: " 条", tag: tag(o.c2c_self > o.group_self, true), tagTxt: "私聊 " + (o.c2c_self || 0) + " / 群 " + (o.group_self || 0), sub: "日均 " + o.avg_per_day + " 条" },
+      { k: "活跃天数", v: o.active_days, small: " 天", tag: "neutral", tagTxt: "分析窗口", sub: fmtTs(R.time_start) + " ~ " + fmtTs(R.time_end) },
+      { k: "深夜占比", v: o.night_ratio, small: "%", tag: tag(nightWarn, false), tagTxt: nightWarn ? "偏高" : "正常", sub: "深夜(23-5点) " + o.night_count + " 条", subCls: nightWarn ? "down" : "" },
+      { k: "平均情绪", v: (s.avg_senti >= 0 ? "+" : "") + s.avg_senti.toFixed(2), small: "", tag: moodCls, tagTxt: moodCls === "up" ? "偏积极" : moodCls === "down" ? "偏消极" : "平稳", sub: "积极词 " + s.pos_hits + " / 消极词 " + s.neg_hits }
+    ];
+    $("kpiGrid").innerHTML = kpis.map(function (k) {
+      return '<div class="kpi"><div class="k">' + k.k + '<span class="tag ' + k.tag + '">' + k.tagTxt + '</span></div>' +
+        '<div class="v">' + k.v + '<small>' + k.small + '</small></div>' +
+        '<div class="sub ' + (k.subCls || "") + '">' + k.sub + '</div></div>';
+    }).join("");
+    drawCurve();
+    drawHours();
+    if (s.care_msgs > 0) {
+      var detail = Object.keys(R.care_words).map(function (k) { return k + "×" + R.care_words[k]; }).join("，");
+      $("careBox").style.display = "block";
+      $("careText").textContent = "检测到 " + s.care_msgs + " 条含高强度负面词汇的消息（" + detail + "）。这不是诊断，但如果这些感受是真实的，请一定找人聊聊，或拨打心理援助热线。";
+    } else { $("careBox").style.display = "none"; }
+  }
+
+  function drawCurve() {
+    var cv = $("curveCanvas"), ctx = cv.getContext("2d");
+    var w = cv.parentNode.clientWidth || 600, h = 220;
+    cv.width = w * 2; cv.height = h * 2; ctx.scale(2, 2);
+    var data = R.daily;
+    if (!data.length) return;
+    var padL = 34, padR = 12, padT = 14, padB = 26;
+    var cw = w - padL - padR, ch = h - padT - padB;
+    ctx.strokeStyle = "#f3f4f6"; ctx.lineWidth = 1;
+    for (var g = 0; g <= 4; g++) {
+      var gy = padT + (g / 4) * ch;
+      ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(padL + cw, gy); ctx.stroke();
+    }
+    ctx.strokeStyle = "#e5e7eb";
+    ctx.beginPath(); ctx.moveTo(padL, padT + ch / 2); ctx.lineTo(padL + cw, padT + ch / 2); ctx.stroke();
+    var stepX = data.length === 1 ? 0 : cw / (data.length - 1);
+    function yOf(v) { return padT + ch / 2 - (Math.max(-1, Math.min(1, v)) / 2) * ch; }
+    ctx.beginPath();
+    data.forEach(function (d, i) {
+      var x = padL + i * stepX, y = yOf(d.senti);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = "#6366f1"; ctx.lineWidth = 2.5; ctx.lineJoin = "round"; ctx.stroke();
+    data.forEach(function (d, i) {
+      var x = padL + i * stepX, y = yOf(d.senti);
+      ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = d.senti >= 0 ? "#10b981" : "#ef4444"; ctx.fill();
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.stroke();
+    });
+    ctx.fillStyle = "#9ca3af"; ctx.font = "11px sans-serif"; ctx.textAlign = "center";
+    var step = Math.max(1, Math.floor(data.length / 6));
+    data.forEach(function (d, i) {
+      if (i % step === 0 || i === data.length - 1) ctx.fillText(d.date.slice(5), padL + i * stepX, h - 8);
+    });
+  }
+
+  function drawHours() {
+    var cv = $("hourCanvas"), ctx = cv.getContext("2d");
+    var w = cv.parentNode.clientWidth || 400, h = 220;
+    cv.width = w * 2; cv.height = h * 2; ctx.scale(2, 2);
+    var hist = R.hour_hist || [];
+    if (!hist.length) return;
+    var max = 0; hist.forEach(function (x) { if (x[1] > max) max = x[1]; });
+    var padL = 24, padR = 8, padT = 12, padB = 22;
+    var cw = w - padL - padR, ch = h - padT - padB;
+    var bw = cw / 24;
+    for (var hh = 0; hh < 24; hh++) {
+      var cnt = 0;
+      hist.forEach(function (x) { if (x[0] === hh) cnt = x[1]; });
+      var isNight = hh >= 23 || hh < 5;
+      var bh = cnt / max * ch;
+      var x = padL + hh * bw;
+      ctx.fillStyle = isNight ? "#f59e0b" : "#e5e7eb";
+      ctx.fillRect(x + bw * 0.2, padT + ch - bh, bw * 0.6, bh);
+      if (hh % 3 === 0) {
+        ctx.fillStyle = "#9ca3af"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(hh, x + bw / 2, h - 6);
+      }
+    }
+    ctx.fillStyle = "#6b7280"; ctx.font = "11px sans-serif"; ctx.textAlign = "left";
+    ctx.fillRect(padL, 2, 8, 8); ctx.fillStyle = "#9ca3af"; ctx.fillText("白天", padL + 12, 10);
+    ctx.fillStyle = "#f59e0b"; ctx.fillRect(padL + 70, 2, 8, 8); ctx.fillStyle = "#6b7280"; ctx.fillText("深夜(23-5点)", padL + 82, 10);
+  }
+
+  /* ================= 每日明细 ================= */
+  function renderDaily() {
+    $("dailyTable").querySelector("tbody").innerHTML = R.daily.slice().reverse().map(function (d) {
+      var cls = d.senti >= 0.05 ? "senti-up" : (d.senti <= -0.05 ? "senti-down" : "senti-flat");
+      return '<tr><td>' + d.date + '</td><td>' + d.count + '</td>' +
+        '<td class="' + cls + '">' + (d.senti >= 0 ? "+" : "") + d.senti.toFixed(2) + '</td>' +
+        '<td>' + d.pos + ' / ' + d.neg + '</td><td>' + (d.night ? "🌙 " + d.night : "—") + '</td>' +
+        '<td>' + d.lenAvg + '</td></tr>';
+    }).join("");
+  }
+
+  /* ================= 社交对象 ================= */
+  function renderSocial() {
+    $("peerList").innerHTML = R.peers.slice(0, 10).map(function (p) {
+      var cls = p.senti >= 0.05 ? "up" : (p.senti <= -0.05 ? "down" : "flat");
+      var name = peerNameOf(p.kind, p.qq);
+      var kindTag = p.kind === "group" ? '<span class="p-kind">群</span>' : '<span class="p-kind">私聊</span>';
+      var av = avatarHTML(p.qq, "s38", COLORS[3]);
+      return '<div class="peer-row" id="pr-' + p.kind + '-' + p.qq + '">' + av +
+        '<div class="p-main"><div class="p-name">' + esc(name) + ' ' + kindTag + '</div>' +
+        '<div class="p-qq">' + p.qq + '</div></div>' +
+        '<div class="p-right"><span class="s ' + cls + '">' + (p.senti >= 0 ? "+" : "") + p.senti.toFixed(2) + '</span>' +
+        '<span class="n" style="color:var(--text-sub);font-size:12px">' + p.self + '条</span>' +
+        '<button class="btn mini ghost" data-rename="' + p.kind + '|' + p.qq + '">✎</button></div></div>';
+    }).join("") || '<div class="peer-row">暂无</div>';
+    // 原生模式：自动补昵称（好友/群名来自列表，其余 c2c 分批查陌生人接口）
+    if (NATIVE) {
+      var need = R.peers.filter(function (p) {
+        return p.kind === "c2c" && /^\d+$/.test(p.qq) && !peerNameOf(p.kind, p.qq).match(/^\d+$/);
+      }).slice(0, 5);
+      need.forEach(function (p, i) {
+        setTimeout(function () {
+          try {
+            var s = JSON.parse(window.QqScopeNative.getStranger(p.qq));
+            if (s && s.nickname) {
+              autoNames[p.kind + "|" + p.qq] = s.nickname;
+              renderSocial();
+            }
+          } catch (e) {}
+        }, (i + 1) * 800);
+      });
+    }
+    // 重命名：内联编辑（不用 prompt，WebView 不支持）
+    document.querySelectorAll("[data-rename]").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var key = btn.getAttribute("data-rename");
+        var parts = key.split("|");
+        var cur = peerNames[key] || parts[1];
+        var row = document.getElementById("pr-" + parts[0] + "-" + parts[1]);
+        if (!row) return;
+        row.innerHTML = '<div class="inline-edit"><input id="ieInp" value="' + esc(cur) + '" maxlength="20">' +
+          '<button class="btn mini accent" id="ieOk">✓</button>' +
+          '<button class="btn mini ghost" id="ieCancel">✕</button></div>';
+        var inp = document.getElementById("ieInp");
+        inp.focus();
+        function ok() {
+          var name = inp.value.trim();
+          if (name) { peerNames[key] = name; } else { delete peerNames[key]; }
+          savePeerNames();
+          renderSocial();
+        }
+        document.getElementById("ieOk").addEventListener("click", ok);
+        document.getElementById("ieCancel").addEventListener("click", renderSocial);
+        inp.addEventListener("keydown", function (ev) { if (ev.key === "Enter") ok(); if (ev.key === "Escape") renderSocial(); });
+      });
+    });
+  }
+
+  /* ================= 词云 ================= */
+  function renderWords() {
+    var chips = R.top_pos_words.map(function (w) {
+      return '<span class="chip up">' + w.w + ' <b>×' + w.c + '</b></span>';
+    }).join("");
+    chips += R.top_neg_words.map(function (w) {
+      return '<span class="chip down">' + w.w + ' <b>×' + w.c + '</b></span>';
+    }).join("");
+    $("wordCloud").innerHTML = chips || '<span class="chip">暂无命中</span>';
+  }
+
+  /* ================= 个人信息 ================= */
+  function renderProfile() {
+    var p = profileFor(current.qq);
+    var nick = p.nick || ("账号 " + current.qq);
+    var col = colorOf(current.qq);
+    $("pfName").textContent = nick;
+    $("pfSign").textContent = signOf();
+    $("pfQq").textContent = "QQ " + current.qq;
+    $("pfAvatar").outerHTML = avatarHTML(current.qq, "s72", col);
+    $("inpNick").value = p.nick || "";
+    $("inpSign").value = p.sign || "";
+    $("colorRow").innerHTML = COLORS.map(function (c) {
+      return '<div class="color-swatch ' + (c === col ? "on" : "") + '" data-c="' + c + '" style="background:' + c + '"></div>';
+    }).join("");
+    document.querySelectorAll(".color-swatch").forEach(function (el) {
+      el.addEventListener("click", function () {
+        document.querySelectorAll(".color-swatch").forEach(function (x) { x.classList.remove("on"); });
+        el.classList.add("on");
+        profileFor(current.qq).color = el.getAttribute("data-c");
+      });
+    });
+    var o = R.overview;
+    $("pfStats").innerHTML = [
+      { k: "自发消息", v: o.self_messages + "<small> 条</small>" },
+      { k: "活跃天数", v: o.active_days + "<small> 天</small>" },
+      { k: "深夜占比", v: o.night_ratio + "%" }
+    ].map(function (x) {
+      return '<div class="kpi"><div class="k">' + x.k + '</div><div class="v">' + x.v + '</div></div>';
+    }).join("");
+  }
+
+  $("btnSave").addEventListener("click", function () {
+    var p = profileFor(current.qq);
+    p.nick = $("inpNick").value.trim() || ("账号 " + current.qq);
+    p.sign = $("inpSign").value.trim();
+    profiles[String(current.qq)] = p;
+    saveProfiles();
+    var tip = $("saveTip");
+    tip.classList.add("show");
+    setTimeout(function () { tip.classList.remove("show"); }, 1500);
+    renderIdentity();
+    renderProfile();
+    renderHome();
+  });
+
+  /* ================= 设置 ================= */
+  function renderSettings() {
+    $("setProvider").value = settings.provider;
+    $("setBase").value = settings.base;
+    $("setKey").value = settings.key;
+    $("setModel").value = settings.model;
+    var info = D.accounts.map(function (a) {
+      var m = a.meta;
+      return "· QQ " + a.qq + "：共 " + m.total_messages + " 条，你发 " + m.self_messages + " 条（" +
+        fmtTs(m.time_start) + " ~ " + fmtTs(m.time_end) + "）";
+    }).join("<br>");
+    $("setDataInfo").innerHTML = info + "<br><br>数据内置于应用（导入时打包）。自动读取将由后端版本提供（见下方说明）。";
+    $("setAbout").innerHTML = "QQScope v1.0 · 引擎 v1 · 情绪词典可扩充 · 数据 100% 本地（AI 解读除外：仅发送你选定的数据摘要给配置的服务商）。";
+  }
+
+  $("btnSaveSettings").addEventListener("click", function () {
+    settings.provider = $("setProvider").value;
+    settings.base = $("setBase").value.trim().replace(/\/+$/, "");
+    settings.key = $("setKey").value.trim();
+    settings.model = $("setModel").value.trim() || "deepseek-chat";
+    saveSettings();
+    var tr = $("testResult");
+    tr.className = "test-result ok";
+    tr.textContent = "✓ 已保存";
+    setTimeout(function () { tr.textContent = ""; }, 2000);
+  });
+
+  $("btnTestApi").addEventListener("click", function () {
+    var tr = $("testResult");
+    var base = $("setBase").value.trim().replace(/\/+$/, "");
+    var key = $("setKey").value.trim();
+    if (!key || !base) { tr.className = "test-result err"; tr.textContent = "请先填写 Base URL 和 API Key"; return; }
+    tr.className = "test-result";
+    tr.textContent = "测试中...";
+    fetch(base + "/models", { headers: { "Authorization": "Bearer " + key } })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (j) {
+        var names = (j.data || []).map(function (m) { return m.id; });
+        tr.className = "test-result ok";
+        tr.textContent = "✓ 连接成功" + (names.length ? "（可用模型 " + names.length + " 个，如 " + names[0] + "）" : "");
+      })
+      .catch(function (e) {
+        tr.className = "test-result err";
+        tr.textContent = "✗ 连接失败：" + e.message;
+      });
+  });
+
+  /* ================= AI 解读 ================= */
+  var aiScope = "overview";
+  document.querySelectorAll("#aiOpts .chip").forEach(function (c) {
+    c.addEventListener("click", function () {
+      document.querySelectorAll("#aiOpts .chip").forEach(function (x) { x.classList.remove("on"); });
+      c.classList.add("on");
+      aiScope = c.getAttribute("data-scope");
+    });
+  });
+
+  function buildAiPrompt(scope) {
+    var o = R.overview, s = R.sentiment;
+    var dailyTxt = R.daily.slice(-10).map(function (d) {
+      return d.date + " 消息" + d.count + "条 情绪" + (d.senti >= 0 ? "+" : "") + d.senti.toFixed(2) +
+        " 积极词" + d.pos + " 消极词" + d.neg + " 深夜" + d.night;
+    }).join("\n");
+    var peersTxt = R.peers.slice(0, 8).map(function (p) {
+      return p.kind + " " + p.qq + " 我发" + p.self + "条 情绪" + (p.senti >= 0 ? "+" : "") + p.senti.toFixed(2);
+    }).join("\n");
+    var common = "账号 QQ" + R.self_qq + "，分析窗口 " + fmtTs(R.time_start) + " ~ " + fmtTs(R.time_end) + "。" +
+      "你发消息 " + o.self_messages + " 条（私聊 " + (o.c2c_self || 0) + " / 群聊 " + (o.group_self || 0) + "），" +
+      "活跃 " + o.active_days + " 天，日均 " + o.avg_per_day + " 条，平均长度 " + o.avg_len + " 字，" +
+      "深夜(23-5点)占比 " + o.night_ratio + "%，平均情绪分 " + (s.avg_senti >= 0 ? "+" : "") + s.avg_senti + "，" +
+      "积极词命中 " + s.pos_hits + " 次、消极词 " + s.neg_hits + " 次。";
+    var scopeTxt = "";
+    if (scope === "daily") scopeTxt = "以下是最近 10 天逐日数据：\n" + dailyTxt;
+    else if (scope === "social") scopeTxt = "以下是社交对象数据：\n" + peersTxt;
+    else if (scope === "advice") scopeTxt = "请重点给出可操作的建议。";
+    return "你是 QQScope 的精神状态解读助手。请基于以下本地聊天数据分析摘要，用中文给出温和、理性、非诊断性的解读" +
+      "（明确这是自我观察的辅助参考，不做医疗判断）。\n\n" + common + "\n" + scopeTxt +
+      "\n\n注意：深夜占比偏高或情绪波动大时请委婉提醒作息，出现高频消极词时建议寻求社交支持，但不要过度解读。";
+  }
+
+  $("btnAi").addEventListener("click", function () {
+    var box = $("aiBox");
+    var prompt = buildAiPrompt(aiScope);
+    var payload = {
+      model: settings.model,
+      messages: [
+        { role: "system", content: "你是严谨温和的辅助观察助手，回答使用中文，不超过 500 字。" },
+        { role: "user", content: prompt }
+      ]
+    };
+    box.className = "ai-box loading";
+    box.textContent = "AI 分析中，请稍候...";
+
+    var req;
+    if (SERVER !== null) {
+      // 后端模式：Key 在 PC 端，走服务端代理
+      if (settings.key) box.textContent = "AI 分析中（使用本机配置的 Key）...";
+      req = fetch(SERVER + "/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      }).then(function (r) { return r.json(); }).then(function (j) {
+        if (j.error) throw new Error(j.error);
+        return j.content;
+      });
+    } else {
+      // 独立模式：直接用设置里的 Key
+      if (!settings.key) {
+        box.className = "ai-box error";
+        box.textContent = "请先在「设置」里填写 API Key 并保存。";
+        return;
+      }
+      req = fetch(settings.base + "/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + settings.key },
+        body: JSON.stringify(Object.assign({ temperature: 0.7, max_tokens: 1200 }, payload))
+      }).then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status + "（检查 API Key / Base URL / 余额）");
+        return r.json();
+      }).then(function (j) {
+        var text = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+        if (!text) throw new Error("响应格式异常");
+        return text;
+      });
+    }
+
+    req.then(function (text) {
+      box.className = "ai-box";
+      box.textContent = text;
+    }).catch(function (e) {
+      box.className = "ai-box error";
+      box.textContent = "AI 请求失败：" + e.message;
+    });
+  });
+
+  /* ================= 视图切换 ================= */
+  var VIEW_NAMES = { overview: "概览", daily: "每日明细", social: "社交对象", words: "高频情绪词", ai: "AI 解读", profile: "个人信息", settings: "设置" };
+  function showView(name) {
+    ["overview", "daily", "social", "words", "ai", "profile", "settings"].forEach(function (v) {
+      var el = document.getElementById("view-" + v);
+      if (el) el.style.display = (v === name) ? "" : "none";
+    });
+    document.querySelectorAll(".sb-nav a, .mnav a").forEach(function (x) {
+      x.classList.toggle("on", x.getAttribute("data-view") === name);
+    });
+    $("tbViewName").textContent = VIEW_NAMES[name] || "";
+    if (name === "overview") { drawCurve(); drawHours(); }
+    if (name === "profile") renderProfile();
+    if (name === "settings") renderSettings();
+    window.scrollTo(0, 0);
+  }
+  document.querySelectorAll(".sb-nav a, .mnav a").forEach(function (a) {
+    a.addEventListener("click", function () { showView(a.getAttribute("data-view")); });
+  });
+
+  function backHome() {
+    $("dashView").style.display = "none";
+    $("homeView").style.display = "";
+    renderHome();
+    window.scrollTo(0, 0);
+  }
+  $("sbSwitch").addEventListener("click", backHome);
+  $("tbSwitch").addEventListener("click", backHome);
+
+  $("footer").innerHTML = "QQSCOPE · 辅助自我观察工具，<b>不构成医疗诊断</b>。数据 100% 本地处理，不出本机。" +
+    "若你持续感到情绪低落、焦虑或痛苦，请向信任的人倾诉或寻求专业帮助。";
+
+  /* ================= API 接口层（外部/未来接入点） ================= */
+  window.QQSCOPE.api = {
+    accounts: {
+      list: function () { return D.accounts.map(function (a) { return { qq: a.qq, meta: a.meta }; }); },
+      report: function (qq) {
+        var a = D.accounts.filter(function (x) { return x.qq === qq; })[0];
+        return a ? window.QQScopeEngine.computeReport(a.messages, a.meta) : null;
+      }
+    },
+    contacts: {
+      getName: function (key) { return peerNameOf.apply(null, key.split("|")); },
+      setName: function (key, name) {
+        if (name && name.trim()) peerNames[key] = name.trim(); else delete peerNames[key];
+        savePeerNames();
+        if (current) renderSocial();
+      },
+      import: function (map) {   // 未来自动昵称接入点：map = {"<kind>|<id>": "昵称"}
+        if (!map) return 0;
+        var n = 0;
+        Object.keys(map).forEach(function (k) { if (map[k]) { peerNames[k] = map[k]; n++; } });
+        savePeerNames();
+        if (current) renderSocial();
+        return n;
+      }
+    },
+    data: {
+      import: function (payload) { throw new Error("data.import 未实现：等待局域网同步/增量通道接入"); }
+    },
+    on: function () { /* 事件订阅预留 */ }
+  };
+
+  /* ================= 后端模式（页面由 PC 后端提供时实时取数） ================= */
+  var SERVER = (location.protocol === "http:" || location.protocol === "https:") ? "" : null;
+  /* ================= 原生安卓模式（协议端内嵌，爬取+实时） ================= */
+  var NATIVE = (typeof window.QqScopeNative !== "undefined" && window.QqScopeNative !== null);
+  var autoNames = {};   // 运行时自动昵称（不持久化）
+  function autoNameOf(kind, id) {
+    if (NATIVE && current && current.meta) {
+      var list = kind === "c2c" ? (current.meta.friends || []) : (current.meta.groups || []);
+      for (var i = 0; i < list.length; i++) {
+        if (String(list[i].qq) === String(id)) return list[i].name;
+      }
+    }
+    return null;
+  }
+  function peerNameOf(kind, id) {
+    var k = kind + "|" + id;
+    if (peerNames[k]) return peerNames[k];
+    var auto = autoNameOf(kind, id);
+    if (auto) return auto;
+    if (autoNames[k]) return autoNames[k];
+    return id;
+  }
+  function nativeInitData(cb) {
+    try {
+      var st = JSON.parse(window.QqScopeNative.getState());
+      if (!st.loggedIn) {
+        $("homeCards").innerHTML = '<div class="home-card"><div class="hc-info"><div class="name">协议端未登录</div>' +
+          '<div class="qq">请回到登录页扫码</div></div></div>';
+        return;
+      }
+      $("homeCards").innerHTML = '<div class="home-card"><div class="hc-info"><div class="name">正在爬取历史消息...</div>' +
+        '<div class="qq">账号 ' + st.uin + '</div></div></div>';
+      window.QqScopeNative.refreshData();
+      var tries = 0;
+      var timer = setInterval(function () {
+        tries++;
+        try {
+          var d = JSON.parse(window.QqScopeNative.getData());
+          if (d.meta && d.meta.total_messages > 0) {
+            clearInterval(timer);
+            D.accounts = [{
+              qq: st.uin,
+              messages: d.messages || [],
+              meta: Object.assign({ qq: st.uin, label: st.nickname || ("账号 " + st.uin) }, d.meta)
+            }];
+            cb();
+          } else if (tries > 45) {
+            clearInterval(timer);
+            $("homeCards").innerHTML = '<div class="home-card"><div class="hc-info"><div class="name">爬取超时</div>' +
+              '<div class="qq">请确认协议端已上线，稍后重新打开</div></div></div>';
+          }
+        } catch (e) { clearInterval(timer); $("homeCards").innerHTML = "桥接错误: " + esc(e.message); }
+      }, 2000);
+    } catch (e) {
+      $("homeCards").innerHTML = "原生桥错误: " + esc(e.message);
+    }
+  }
+  // 原生桥：数据就绪 / 实时消息
+  window.__dataReady = function () {
+    try {
+      var d = JSON.parse(window.QqScopeNative.getData());
+      if (!d.meta || !d.meta.total_messages) return;
+      if (!D.accounts.length) {
+        var st = JSON.parse(window.QqScopeNative.getState());
+        D.accounts = [{ qq: st.uin, messages: d.messages || [], meta: Object.assign({ qq: st.uin, label: st.nickname || ("账号 " + st.uin) }, d.meta) }];
+        renderHome();
+      } else if (current) {
+        current.messages = d.messages || [];
+        current.meta = Object.assign(current.meta, d.meta);
+        R = window.QQScopeEngine.computeReport(current.messages, current.meta);
+        if (document.getElementById("view-overview").style.display !== "none") renderOverview();
+        if (document.getElementById("view-daily").style.display !== "none") renderDaily();
+        if (document.getElementById("view-social").style.display !== "none") renderSocial();
+        if (document.getElementById("view-words").style.display !== "none") renderWords();
+      }
+    } catch (e) {}
+  };
+  window.__dataError = function (msg) {
+    try {
+      $("homeCards").innerHTML = '<div class="home-card"><div class="hc-info"><div class="name">爬取失败</div>' +
+        '<div class="qq">' + esc(msg) + '</div></div></div>';
+    } catch (e) {}
+  };
+  window.__nativeMsg = function (json) {
+    try {
+      var m = JSON.parse(json);
+      if (!current) return;
+      current.messages.push(m);
+      var meta = current.meta;
+      meta.total_messages = (meta.total_messages || 0) + 1;
+      if (m.d === 1) meta.self_messages = (meta.self_messages || 0) + 1;
+      if (m.t < (meta.time_start || 0) || !meta.time_start) meta.time_start = m.t;
+      if (m.t > (meta.time_end || 0)) meta.time_end = m.t;
+      R = window.QQScopeEngine.computeReport(current.messages, current.meta);
+      var visible = document.querySelector(".view") && null;
+      ["overview", "daily", "social", "words"].forEach(function (v) {
+        var el = document.getElementById("view-" + v);
+        if (el && el.style.display !== "none") {
+          if (v === "overview") renderOverview();
+          if (v === "daily") renderDaily();
+          if (v === "social") renderSocial();
+          if (v === "words") renderWords();
+        }
+      });
+    } catch (e) {}
+  };
+  function initData(cb) {
+    if (NATIVE) { nativeInitData(cb); return; }
+    if (SERVER === null) { cb(); return; }
+    $("homeCards").innerHTML = '<div class="home-card"><div class="hc-info"><div class="name">正在连接 PC 后端...</div></div></div>';
+    fetch(SERVER + "/api/accounts")
+      .then(function (r) { return r.json(); })
+      .then(function (list) {
+        var tasks = list.map(function (a) {
+          return fetch(SERVER + a.url).then(function (r) { return r.json(); })
+            .then(function (d) { return { qq: d.qq, messages: d.messages, meta: d.meta }; });
+        });
+        return Promise.all(tasks);
+      })
+      .then(function (accs) {
+        if (!accs || !accs.length) throw new Error("后端没有可用账号数据");
+        D.accounts = accs;
+        cb();
+      })
+      .catch(function (e) {
+        $("homeCards").innerHTML = '<div class="home-card"><div class="hc-info"><div class="name">后端连接失败</div>' +
+          '<div class="qq">' + esc(e.message) + '</div></div></div>';
+      });
+  }
+
+  renderHome();
+  initData(renderHome);
+})();
+</script>
+</body>
+</html>

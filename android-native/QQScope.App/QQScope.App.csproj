@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-android</TargetFramework>
+    <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
+    <OutputType>Library</OutputType>
+    <AndroidApplication>true</AndroidApplication>
+    <ApplicationId>com.qqscope.app</ApplicationId>
+    <ApplicationTitle>QQScope</ApplicationTitle>
+    <Version>1.0.0</Version>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AndroidUseIntermediateJavaObjectVerification>false</AndroidUseIntermediateJavaObjectVerification>
+    <!-- 程序集内嵌进 APK（否则 Debug 包依赖 IDE 快部署，直接安装会闪退） -->
+    <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Lagrange.Core" Version="2.1.1" />
+    <AndroidAsset Include="assets\QQScope.html" />
+  </ItemGroup>
+</Project>

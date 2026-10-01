@@ -1,0 +1,3 @@
+{"id": 1, "ok": false, "error": "识别结果为空", "stage": "empty", "lang": "zh", "seconds": 10.28, "elapsed": 5.88, "engine": "faster-whisper-small-int8"}
+{"id": 2, "ok": true, "text": "我今天晚上终于可以画画了呀。 我的板子,我的平板都已经准备好电量了。 爽之,爽之,美哉美哉快哉快, 在今天晚上可以捍占零零的画画了。", "lang": "zh", "seconds": 13.26, "elapsed": 8.92, "engine": "faster-whisper-small-int8"}
+{"id": 4, "ok": false, "error": "识别结果为空", "stage": "empty", "lang": "zh", "seconds": 2.76, "elapsed": 0.09, "engine": "faster-whisper-small-int8"}

@@ -1,0 +1,1 @@
+{"id": 132363, "ok": false, "error": "识别结果为空", "stage": "empty", "lang": "zh", "seconds": 0.56, "elapsed": 8.86, "engine": "faster-whisper-small-int8"}

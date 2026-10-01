@@ -1,0 +1,3 @@
+HF_ENDPOINT = https://hf-mirror.com DISABLE_XET = 1
+MODEL_PATH = C:\Users\Administrator\.cache\huggingface\hub\models--Systran--faster-whisper-small\snapshots\536b0662742c02347bc0e980a01041f333bce120
+MODEL_BIN = C:\Users\Administrator\.cache\huggingface\hub\models--Systran--faster-whisper-small\snapshots\536b0662742c02347bc0e980a01041f333bce120\model.bin
