@@ -820,6 +820,14 @@ def login_gate(cfg: dict | None = None, deep: bool = False,
         pid = int(listen.get(wu_port) or listen.get(ob_port) or 0)
 
     qr = qrcode_info()
+    # NapCat 只在启动时写一次二维码文件，过期后不会自己重写 —— 这里标出「已过期」，
+    # 前端据此提示用户点「刷新二维码」（= 重启框架拿新码），而不是重复显示同一张死码。
+    try:
+        _age = max(0, int(time.time()) - int(qr.get("mtime") or 0))
+    except Exception:
+        _age = 0
+    qr["age_s"] = _age
+    qr["stale"] = bool(qr.get("available") and not logged_in and _age > 110)
     if not running:
         msg = "框架未运行：请点「启动框架」后再扫码登录"
     elif not logged_in:

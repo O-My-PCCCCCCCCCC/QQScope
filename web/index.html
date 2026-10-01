@@ -4685,6 +4685,9 @@ var LoginGate = (function () {
     if (ph) ph.style.display = "none";
     img.onerror = function () { img.hidden = true; if (ph) { ph.style.display = ""; ph.textContent = "二维码加载失败，点「刷新二维码」重试"; } };
     img.src = ((s && s.qr && s.qr.url) || QR_URL) + "?t=" + encodeURIComponent(t);
+    if (s && s.qr && s.qr.stale) {
+      setHint("这张二维码已过期（已 " + (s.qr.age_s || 0) + " 秒）。点下方「<b>刷新二维码</b>」重新获取（会重启框架）。");
+    }
   }
   function renderQr(s) {
     setStateLine("warn", "等待扫码");
@@ -4744,9 +4747,20 @@ var LoginGate = (function () {
     else el.textContent = "—";
   }
   function refreshQr() {
+    /* NapCat 只在启动时写一次二维码，过期后自己不会重写；
+       所以「刷新二维码」= 结束当前框架进程 + 重新启动，拿一张全新的码。 */
+    if (!(status && status.framework_running)) { lastQrT = ""; poll(); return; }
+    if (status.logged_in) { lastQrT = ""; poll(); return; }
+    toast("正在刷新二维码（重启框架）…", "warn");
+    setHint("正在重启框架以获取新二维码，请稍候…");
     lastQrT = "";
-    if (status && status.qr && status.qr.available) renderQrImage(status);
-    poll();
+    apiPost("/api/framework/logout", { force: true }).then(function () {
+      return new Promise(function (res) { setTimeout(res, 1500); });
+    }).then(function () {
+      return apiPost("/api/framework/start", {});
+    }).then(function () {
+      setTimeout(poll, 2500); setTimeout(poll, 6000);
+    }, function () { poll(); });
   }
   function startFramework() {
     toast("正在请求启动框架…");
